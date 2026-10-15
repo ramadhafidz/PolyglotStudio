@@ -283,61 +283,53 @@ class ClassicDATStudioApp(tk.Tk):
 
         # ----------------- Top Toolbar Frame -----------------
         top_frame = ttk.Frame(self)
-        top_frame.pack(fill=tk.X, padx=5, pady=4)
+        top_frame.pack(fill=tk.X, padx=8, pady=(4, 6))
 
         def _add_sep():
             sep = ttk.Separator(top_frame, orient=tk.VERTICAL)
-            sep.pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+            sep.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=3)
 
-        # Group 1: File Operations
-        ttk.Button(top_frame, text=f"{Icons.ROMFS} Open RomFS", command=self.open_romfs).pack(side=tk.LEFT, padx=1)
-        ttk.Button(top_frame, text=f"{Icons.FOLDER} Open Folder", command=self.open_folder).pack(side=tk.LEFT, padx=1)
+        # Primary Core Actions (High Frequency)
+        ttk.Button(top_frame, text=f"{Icons.ROMFS} Open RomFS", command=self.open_romfs).pack(side=tk.LEFT, padx=2)
         self.save_btn = ttk.Button(top_frame, text=f"{Icons.SAVE} Save", command=self.save_file, state=tk.DISABLED)
-        self.save_btn.pack(side=tk.LEFT, padx=1)
-        self.export_btn = ttk.Button(top_frame, text=f"{Icons.EXPORT} Export TXT", command=self.export_txt, state=tk.DISABLED)
-        self.export_btn.pack(side=tk.LEFT, padx=1)
-        self.import_btn = ttk.Button(top_frame, text=f"{Icons.IMPORT} Import TXT", command=self.import_txt, state=tk.DISABLED)
-        self.import_btn.pack(side=tk.LEFT, padx=1)
+        self.save_btn.pack(side=tk.LEFT, padx=2)
 
         _add_sep()
 
-        # Group 2: History (Undo/Redo)
-        self.undo_btn = ttk.Button(top_frame, text=f"{Icons.UNDO} Undo", command=self.undo, state=tk.DISABLED)
-        self.undo_btn.pack(side=tk.LEFT, padx=1)
-        self.redo_btn = ttk.Button(top_frame, text=f"{Icons.REDO} Redo", command=self.redo, state=tk.DISABLED)
-        self.redo_btn.pack(side=tk.LEFT, padx=1)
-
-        _add_sep()
-
-        # Group 3: AI & Translation Tools
+        # AI & Translation Actions
         self.ai_btn = ttk.Button(top_frame, text=f"{Icons.AI_SPARKLE} Translate AI", command=self.translate_with_ai, state=tk.DISABLED)
-        self.ai_btn.pack(side=tk.LEFT, padx=1)
+        self.ai_btn.pack(side=tk.LEFT, padx=2)
         self.batch_btn = ttk.Button(top_frame, text=f"{Icons.BATCH} Batch AI", command=self.open_batch_translate_dialog, state=tk.NORMAL)
-        self.batch_btn.pack(side=tk.LEFT, padx=1)
-        self.qa_fix_btn = ttk.Button(top_frame, text=f"{Icons.REPAIR} Fix Tags", command=self.auto_fix_all_tags, state=tk.NORMAL)
-        self.qa_fix_btn.pack(side=tk.LEFT, padx=1)
-        ttk.Button(top_frame, text=f"{Icons.GLOSSARY} Glossary", command=self.open_glossary_dialog).pack(side=tk.LEFT, padx=1)
+        self.batch_btn.pack(side=tk.LEFT, padx=2)
+        ttk.Button(top_frame, text=f"{Icons.GLOSSARY} Glossary", command=self.open_glossary_dialog).pack(side=tk.LEFT, padx=2)
 
         _add_sep()
 
-        # Group 4: Modding & Deployment
+        # Deployment Action
         self.deploy_btn = ttk.Button(top_frame, text=f"{Icons.DEPLOY} Deploy Mod", command=self.deploy_to_eden, state=tk.NORMAL)
-        self.deploy_btn.pack(side=tk.LEFT, padx=1)
-        ttk.Button(top_frame, text=f"{Icons.PACKAGE} Mod Manager", command=self.open_mod_manager).pack(side=tk.LEFT, padx=1)
+        self.deploy_btn.pack(side=tk.LEFT, padx=2)
 
-        _add_sep()
+        # Non-toolbar button attributes maintained for compatibility
+        self.export_btn = None
+        self.import_btn = None
+        self.undo_btn = None
+        self.redo_btn = None
+        self.qa_fix_btn = None
 
-        # Group 5: Settings
-        ttk.Button(top_frame, text=f"{Icons.SETTINGS} Settings", command=self.open_settings_modal).pack(side=tk.LEFT, padx=1)
-
-        # AI Badge on Top Right
+        # Right Side: Active AI Model Badge & Settings
         self.ai_badge_lbl = ttk.Label(
             top_frame, 
             text=f"{Icons.AI_BOT} {self.ai.model}", 
             foreground="#6A1B9A", 
-            font=("Arial", 9, "bold")
+            font=("Segoe UI", 9, "bold")
         )
-        self.ai_badge_lbl.pack(side=tk.RIGHT, padx=10)
+        self.ai_badge_lbl.pack(side=tk.RIGHT, padx=(4, 8))
+
+        ttk.Button(
+            top_frame, 
+            text=f"{Icons.SETTINGS} Settings", 
+            command=self.open_settings_modal
+        ).pack(side=tk.RIGHT, padx=4)
 
         # ----------------- Main Resizable PanedWindow -----------------
         self.paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -795,8 +787,8 @@ class ClassicDATStudioApp(tk.Tk):
 
         dt = (time.time() - t0) * 1000
         self.save_btn.config(state=tk.NORMAL)
-        self.export_btn.config(state=tk.NORMAL)
-        self.import_btn.config(state=tk.NORMAL)
+        if getattr(self, 'export_btn', None): self.export_btn.config(state=tk.NORMAL)
+        if getattr(self, 'import_btn', None): self.import_btn.config(state=tk.NORMAL)
         self.ai_btn.config(state=tk.NORMAL)
 
         self.update_progress_summary()
@@ -884,8 +876,8 @@ class ClassicDATStudioApp(tk.Tk):
 
 
         self.save_btn.config(state=tk.NORMAL)
-        self.export_btn.config(state=tk.NORMAL)
-        self.import_btn.config(state=tk.NORMAL)
+        if getattr(self, 'export_btn', None): self.export_btn.config(state=tk.NORMAL)
+        if getattr(self, 'import_btn', None): self.import_btn.config(state=tk.NORMAL)
         self.ai_btn.config(state=tk.NORMAL)
 
         # Update progress summary badge
@@ -1216,8 +1208,8 @@ class ClassicDATStudioApp(tk.Tk):
 
             self.ai_btn.config(state=tk.DISABLED)
             self.save_btn.config(state=tk.DISABLED)
-            self.export_btn.config(state=tk.DISABLED)
-            self.import_btn.config(state=tk.DISABLED)
+            if getattr(self, 'export_btn', None): self.export_btn.config(state=tk.DISABLED)
+            if getattr(self, 'import_btn', None): self.import_btn.config(state=tk.DISABLED)
             self.cur_file_lbl.config(text=f"Image: {item['rel_path']}")
             self.update_status_selector(item["status"], is_manual=item.get("is_manual", False))
             self._sync_tree_selection(index)
@@ -1234,8 +1226,8 @@ class ClassicDATStudioApp(tk.Tk):
                 self.review_bar.pack_forget()
             self.ai_btn.config(state=tk.DISABLED)
             self.save_btn.config(state=tk.DISABLED)
-            self.export_btn.config(state=tk.DISABLED)
-            self.import_btn.config(state=tk.DISABLED)
+            if getattr(self, 'export_btn', None): self.export_btn.config(state=tk.DISABLED)
+            if getattr(self, 'import_btn', None): self.import_btn.config(state=tk.DISABLED)
             self.cur_file_lbl.config(text=f"Binary File: {item['rel_path']}")
             self.info_status_lbl.config(
                 text=f"File format {atype.value} is not supported for editing as dialogue text.", 
@@ -1262,8 +1254,8 @@ class ClassicDATStudioApp(tk.Tk):
             self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
 
         self.save_btn.config(state=tk.NORMAL)
-        self.export_btn.config(state=tk.NORMAL)
-        self.import_btn.config(state=tk.NORMAL)
+        if getattr(self, 'export_btn', None): self.export_btn.config(state=tk.NORMAL)
+        if getattr(self, 'import_btn', None): self.import_btn.config(state=tk.NORMAL)
 
         # 1. Check if SQLite already has this file's data (including preserved original English)
         db_data = self.db.get_file_full_data(item["filename"])
@@ -1372,7 +1364,7 @@ class ClassicDATStudioApp(tk.Tk):
 
             self.table.insert('', 'end', values=(i, accept_sym, orig, trans), tags=tags)
 
-        if hasattr(self, 'qa_fix_btn'):
+        if getattr(self, 'qa_fix_btn', None):
             self.qa_fix_btn.config(state=tk.NORMAL if any_fixable_errors else tk.DISABLED)
 
         # Auto-calculate comfortable column widths based on longest text
@@ -1639,9 +1631,9 @@ class ClassicDATStudioApp(tk.Tk):
     def _update_undo_buttons(self):
         can_undo = len(self.undo_stack) > 0
         can_redo = len(self.redo_stack) > 0
-        if hasattr(self, 'undo_btn'):
+        if getattr(self, 'undo_btn', None):
             self.undo_btn.config(state=tk.NORMAL if can_undo else tk.DISABLED)
-        if hasattr(self, 'redo_btn'):
+        if getattr(self, 'redo_btn', None):
             self.redo_btn.config(state=tk.NORMAL if can_redo else tk.DISABLED)
 
     def push_undo_state(self):
