@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="GFTool.Core">
+      <HintPath>D:\Environtment\utilities\trinity\fileexplorer\GFTool.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="TrinityFileExplorer">
+      <HintPath>D:\Environtment\utilities\trinity\fileexplorer\TrinityFileExplorer.dll</HintPath>
+    </Reference>
+    <Reference Include="FlatSharp.Runtime">
+      <HintPath>D:\Environtment\utilities\trinity\fileexplorer\FlatSharp.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="FlatSharp">
+      <HintPath>D:\Environtment\utilities\trinity\fileexplorer\FlatSharp.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
