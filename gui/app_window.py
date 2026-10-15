@@ -88,6 +88,7 @@ class ClassicDATStudioApp(tk.Tk):
 
         # Tree node mapping
         self.tree_item_to_index: Dict[str, int] = {}
+        self._folder_pending_items: Dict[str, List[int]] = {}
 
         # RomFS Virtual Explorer Client
         self.trpfs_client = TrpfsClient()
@@ -308,6 +309,7 @@ class ClassicDATStudioApp(tk.Tk):
         tree_container.grid_columnconfigure(0, weight=1)
 
         self.file_tree.bind('<<TreeviewSelect>>', self.on_file_tree_select)
+        self.file_tree.bind('<<TreeviewOpen>>', self.on_tree_item_open)
         self.file_tree.bind('<Button-3>', self.show_tree_context_menu)  # Right-click context menu
 
         # Context Menu for Treeview
@@ -721,28 +723,30 @@ class ClassicDATStudioApp(tk.Tk):
         self.progress_lbl.config(text=f"{Icons.STATUS_DONE} {c_done}  {Icons.STATUS_TODO} {c_untr}")
 
     def populate_file_tree(self):
-        log.debug("Populating file tree...")
+        log.debug("Populating file tree with virtual lazy loading...")
         t0 = time.time()
 
         # 1. Save existing folder open/collapse states
         open_states = {}
         for r in self.file_tree.get_children():
             text = self.file_tree.item(r, "text")
-            # If node has children or starts with folder icon, record open state (1 or 0)
             if self.file_tree.get_children(r) or text.startswith(Icons.FOLDER):
                 open_states[text] = bool(self.file_tree.item(r, "open"))
             self.file_tree.delete(r)
         self.tree_item_to_index.clear()
+        self._folder_pending_items.clear()
 
         query = self.fe_search_var.get().lower().strip()
         filter_mode = self.fe_filter_var.get()
         asset_cat = self.asset_filter_var.get() if hasattr(self, 'asset_filter_var') else "Semua Kategori"
 
-        folder_nodes: Dict[str, str] = {}
+        # Separate items into matching groups
+        folder_groups: Dict[str, List[int]] = {}
+        root_items: List[int] = []
+        is_search_active = bool(query)
 
         for idx, item in enumerate(self.file_items):
-            rel = item["rel_path"]
-            parts = rel.split(os.sep)
+            rel = item["rel_path"].replace("/", os.sep)
             stat = item.get("status", "untranslated")
 
             # Filtering
@@ -755,31 +759,95 @@ class ClassicDATStudioApp(tk.Tk):
             if not AssetClassifier.matches_category_filter(item["filename"], asset_cat):
                 continue
 
-            # Determine parent folder in tree
+            parts = rel.split(os.sep)
             if len(parts) > 1:
                 folder_name = parts[0]
-                folder_text = f"{Icons.FOLDER} {folder_name}"
-                if folder_name not in folder_nodes:
-                    # Restore previous open state if existed, otherwise default to True
-                    was_open = open_states.get(folder_text, True)
-                    node_id = self.file_tree.insert('', 'end', text=folder_text, open=was_open)
-                    folder_nodes[folder_name] = node_id
-                parent_id = folder_nodes[folder_name]
+                if folder_name not in folder_groups:
+                    folder_groups[folder_name] = []
+                folder_groups[folder_name].append(idx)
             else:
-                parent_id = ''
+                root_items.append(idx)
 
+        # Insert root level files directly
+        for idx in root_items:
+            item = self.file_items[idx]
             status_icon, _, _ = StatusTracker.get_display_info(
-                stat, 
+                item.get("status", "untranslated"), 
                 item.get("diffs", 0), 
                 item.get("total", 0), 
                 is_manual=item.get("is_manual", False)
             )
             item_text = f"{status_icon} {item['filename']}"
-
-            leaf_id = self.file_tree.insert(parent_id, 'end', text=item_text)
+            leaf_id = self.file_tree.insert('', 'end', text=item_text)
             self.tree_item_to_index[leaf_id] = idx
 
+        # Determine which folder to expand by default
+        first_folder = list(folder_groups.keys())[0] if folder_groups else None
+
+        # Insert folder nodes with on-demand lazy child loading
+        for folder_name, indices in folder_groups.items():
+            folder_text = f"{Icons.FOLDER} {folder_name}"
+            if is_search_active:
+                was_open = True
+            elif open_states:
+                was_open = open_states.get(folder_text, False)
+            else:
+                # Default: active first folder open, other folders collapsed
+                was_open = (folder_name == first_folder)
+
+            node_id = self.file_tree.insert('', 'end', text=folder_text, open=was_open)
+
+            if was_open:
+                # Render children directly for open folder
+                for idx in indices:
+                    item = self.file_items[idx]
+                    status_icon, _, _ = StatusTracker.get_display_info(
+                        item.get("status", "untranslated"), 
+                        item.get("diffs", 0), 
+                        item.get("total", 0), 
+                        is_manual=item.get("is_manual", False)
+                    )
+                    item_text = f"{status_icon} {item['filename']}"
+                    leaf_id = self.file_tree.insert(node_id, 'end', text=item_text)
+                    self.tree_item_to_index[leaf_id] = idx
+            else:
+                # Virtual Lazy-Loading: Add placeholder dummy child
+                self.file_tree.insert(node_id, 'end', text="__dummy__")
+                self._folder_pending_items[node_id] = indices
+
         log.debug(f"Populated tree with {len(self.tree_item_to_index)} visible items in {(time.time()-t0)*1000:.1f}ms")
+
+    def on_tree_item_open(self, event=None):
+        """Lazy load children when a folder node is expanded."""
+        if not hasattr(self, "_folder_pending_items") or not self._folder_pending_items:
+            return
+
+        to_remove = []
+        for node_id, indices in self._folder_pending_items.items():
+            try:
+                if self.file_tree.item(node_id, "open"):
+                    children = self.file_tree.get_children(node_id)
+                    for ch in children:
+                        if self.file_tree.item(ch, "text") == "__dummy__":
+                            self.file_tree.delete(ch)
+                    for idx in indices:
+                        item = self.file_items[idx]
+                        status_icon, _, _ = StatusTracker.get_display_info(
+                            item.get("status", "untranslated"), 
+                            item.get("diffs", 0), 
+                            item.get("total", 0), 
+                            is_manual=item.get("is_manual", False)
+                        )
+                        item_text = f"{status_icon} {item['filename']}"
+                        leaf_id = self.file_tree.insert(node_id, 'end', text=item_text)
+                        self.tree_item_to_index[leaf_id] = idx
+                    to_remove.append(node_id)
+            except Exception:
+                pass
+
+        for nid in to_remove:
+            if nid in self._folder_pending_items:
+                del self._folder_pending_items[nid]
 
     def filter_file_tree(self):
         self.populate_file_tree()
@@ -1564,7 +1632,8 @@ class ClassicDATStudioApp(tk.Tk):
                     progress_callback=on_progress,
                     glossary_block=glossary_block,
                     on_new_terms=on_new_terms_found,
-                    get_fresh_glossary_block=lambda: self.db.get_glossary_prompt_block()
+                    get_fresh_glossary_block=lambda: self.db.get_glossary_prompt_block(),
+                    max_workers=3
                 )
                 log.info(f"AI translation finished in {time.time()-t0:.2f}s with {len(result)} lines. New terms found: {len(new_terms_recorded)}")
                 def on_success():
