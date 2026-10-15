@@ -1,0 +1,68 @@
+# ============================================================
+# Polyglot Studio .gitignore
+# ============================================================
+
+# --- Secrets & Environment Variables ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Local Machine Settings ---
+config/settings.json
+config/settings.local.json
+
+# --- Runtime Logs ---
+studio.log
+*.log
+
+# --- Python & Virtual Environments ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- SQLite Databases & Lock Files ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+# --- Workspace & User Projects ---
+workspace/*
+!workspace/.gitkeep
+
+backup_*/
+*.bak
+dump/
+romfs/
+
+# --- .NET Build Outputs (TrpfsWorker) ---
+tools/TrpfsWorker/bin/
+tools/TrpfsWorker/obj/
+*.user
+*.suo
+
+# --- IDEs & System Files ---
+.vscode/
+.idea/
+.user_uploaded/
+.system_generated/
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
