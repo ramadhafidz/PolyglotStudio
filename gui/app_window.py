@@ -93,6 +93,10 @@ class ClassicDATStudioApp(tk.Tk):
         # Active background AI translation tasks: {filename: task_metadata_dict}
         self.active_ai_tasks: Dict[str, Dict[str, Any]] = {}
 
+        # Multi-file pending AI diffs cache waiting for user review: {filename: {line_idx: new_text}}
+        self.file_pending_ai_diffs: Dict[str, Dict[int, str]] = {}
+        self.file_pending_ai_meta: Dict[str, Dict[str, Any]] = {}
+
         # RomFS Virtual Explorer Client
         self.trpfs_client = TrpfsClient()
         self.is_romfs_mode = False
@@ -126,16 +130,24 @@ class ClassicDATStudioApp(tk.Tk):
             log.warning(f"Neither RomFS dump nor default English directory found.")
 
     def on_close_window(self):
-        if hasattr(self, 'active_ai_tasks') and self.active_ai_tasks:
-            count = len(self.active_ai_tasks)
-            names = ", ".join(list(self.active_ai_tasks.keys())[:3])
-            if count > 3:
-                names += f", dan {count - 3} file lainnya"
-            if not messagebox.askyesno(
-                "AI Masih Berjalan",
-                f"Ada {count} proses translasi AI yang masih berjalan di latar belakang ({names}).\n\n"
-                "Apakah Anda yakin ingin tetap menutup aplikasi?"
-            ):
+        active_count = len(getattr(self, 'active_ai_tasks', {}))
+        pending_files = [f for f, diffs in getattr(self, 'file_pending_ai_diffs', {}).items() if diffs]
+        if self.pending_ai_diffs and self.current_file_index >= 0:
+            cur_f = self.file_items[self.current_file_index]['filename']
+            if cur_f not in pending_files:
+                pending_files.append(cur_f)
+
+        if active_count > 0 or pending_files:
+            msg_parts = []
+            if active_count > 0:
+                msg_parts.append(f"• {active_count} proses translasi AI masih berjalan di latar belakang.")
+            if pending_files:
+                names = ", ".join(pending_files[:3])
+                if len(pending_files) > 3:
+                    names += f", dan {len(pending_files) - 3} file lainnya"
+                msg_parts.append(f"• Terdapat translasi AI yang belum di-accept/review pada: {names}.")
+            msg_text = "\n".join(msg_parts) + "\n\nApakah Anda yakin ingin tetap menutup aplikasi?"
+            if not messagebox.askyesno("Konfirmasi Keluar", msg_text):
                 return
         self.destroy()
 
@@ -831,18 +843,20 @@ class ClassicDATStudioApp(tk.Tk):
         log.debug(f"Populated tree with {len(self.tree_item_to_index)} visible items in {(time.time()-t0)*1000:.1f}ms")
 
     def _get_tree_item_text(self, item: Dict[str, Any]) -> str:
-        """Returns the formatted item label with icon, reflecting active background AI tasks if any."""
-        stat = item.get("status", "untranslated")
-        if item.get("filename") in getattr(self, "active_ai_tasks", {}):
+        """Returns the formatted item label with icon, reflecting active background AI tasks or pending review diffs."""
+        fname = item.get("filename", "")
+        if fname in getattr(self, "active_ai_tasks", {}):
             status_icon = Icons.SYNC
+        elif fname in getattr(self, "file_pending_ai_diffs", {}) and self.file_pending_ai_diffs[fname]:
+            status_icon = Icons.AI_SPARKLE
         else:
             status_icon, _, _ = StatusTracker.get_display_info(
-                stat, 
+                item.get("status", "untranslated"), 
                 item.get("diffs", 0), 
                 item.get("total", 0), 
                 is_manual=item.get("is_manual", False)
             )
-        return f"{status_icon} {item['filename']}"
+        return f"{status_icon} {fname}"
 
     def on_tree_item_open(self, event=None):
         """Lazy load children when a folder node is expanded."""
@@ -989,29 +1003,24 @@ class ClassicDATStudioApp(tk.Tk):
             log.warning(f"load_file called with invalid index: {index}")
             return
 
-        # Check if previous file has unreviewed AI translations
+        # Preserve currently unreviewed AI diffs for previous file in multi-file staging cache
         if self.pending_ai_diffs and self.current_file_index >= 0 and self.current_file_index != index:
             cur_fname = self.file_items[self.current_file_index]['filename']
-            res = messagebox.askyesnocancel(
-                "Ada Perubahan AI Belum Di-Accept",
-                f"File '{cur_fname}' memiliki {len(self.pending_ai_diffs)} baris translasi AI yang belum di-accept.\n\n"
-                "• Klik [Yes] untuk Accept All & Simpan sekarang\n"
-                "• Klik [No] untuk Batalkan (Discard) dan lanjut pindah file\n"
-                "• Klik [Cancel] untuk tetap berada di file ini"
-            )
-            if res is True:
-                self.accept_all_ai_diffs()
-            elif res is False:
-                self.discard_all_ai_diffs()
-            else:
-                self._sync_tree_selection(self.current_file_index)
-                return
+            self.file_pending_ai_diffs[cur_fname] = dict(self.pending_ai_diffs)
+            self.update_tree_item_display(self.current_file_index)
 
         t0 = time.time()
         self.current_file_index = index
-        self.pending_ai_diffs = {}
-        self.update_review_bar()
         item = self.file_items[index]
+        target_fname = item["filename"]
+
+        # Restore pending AI diffs for target file if any exist in staging cache
+        if target_fname in getattr(self, "file_pending_ai_diffs", {}) and self.file_pending_ai_diffs[target_fname]:
+            self.pending_ai_diffs = dict(self.file_pending_ai_diffs[target_fname])
+        else:
+            self.pending_ai_diffs = {}
+
+        self.update_review_bar()
         atype = item.get("asset_type", AssetType.TEXT)
         log.info(f"Loading file [{index + 1}/{len(self.file_items)}]: {item['rel_path']} (Type: {atype})")
 
@@ -1117,6 +1126,16 @@ class ClassicDATStudioApp(tk.Tk):
             item["status"] = stat
 
         self.update_table_display()
+        self.update_review_bar()
+
+        if self.pending_ai_diffs:
+            meta = getattr(self, "file_pending_ai_meta", {}).get(target_fname, {})
+            tm_hits = meta.get("tm_hits", 0)
+            tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
+            self.info_status_lbl.config(
+                text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{tm_info} (klik {Icons.ACCEPT} per baris atau Accept All)", 
+                foreground="#155724"
+            )
 
         self.cur_file_lbl.config(text=f"File: {item['rel_path']}")
         self.update_status_selector(
@@ -1781,20 +1800,16 @@ class ClassicDATStudioApp(tk.Tk):
                         self.file_items[self.current_file_index]["filename"] == target_filename
                     )
 
-                    if is_user_still_on_file:
-                        # SCENARIO A: User is still on the same file -> Interactive Review Staging
-                        self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
+                    # Compute diffs between target_trans_lines and AI result
+                    diffs_found: Dict[int, str] = {}
+                    for i, new_line in enumerate(result):
+                        cur_line = target_trans_lines[i] if i < len(target_trans_lines) else ""
+                        if new_line != cur_line:
+                            diffs_found[i] = new_line
 
-                        diffs_found: Dict[int, str] = {}
-                        for i, new_line in enumerate(result):
-                            cur_line = self.current_trans_lines[i] if i < len(self.current_trans_lines) else ""
-                            if new_line != cur_line:
-                                diffs_found[i] = new_line
-
-                        if matched_idx >= 0:
-                            self.update_tree_item_display(matched_idx)
-
-                        if not diffs_found:
+                    if not diffs_found:
+                        if is_user_still_on_file:
+                            self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
                             self.info_status_lbl.config(
                                 text="AI/TM selesai: Semua baris sudah sesuai, tidak ada perubahan baru.", 
                                 foreground="#007ACC"
@@ -1803,59 +1818,46 @@ class ClassicDATStudioApp(tk.Tk):
                                 "AI/TM Translate Selesai", 
                                 "Tidak ada baris yang berubah. Hasil terjemahan sama persis dengan terjemahan saat ini."
                             )
-                            return
+                        else:
+                            self.info_status_lbl.config(
+                                text=f"AI/TM '{target_filename}' selesai: Tidak ada perubahan baru.", 
+                                foreground="#007ACC"
+                            )
+                        if matched_idx >= 0:
+                            self.update_tree_item_display(matched_idx)
+                        return
 
+                    # Stage the diffs into pending review cache for target_filename
+                    self.file_pending_ai_diffs[target_filename] = diffs_found
+                    self.file_pending_ai_meta[target_filename] = {
+                        "tm_hits": tm_hits,
+                        "new_terms": new_terms_recorded,
+                        "result": result
+                    }
+
+                    extra_terms = f" ({len(new_terms_recorded)} kosakata baru dicatat ke Kamus)" if new_terms_recorded else ""
+                    tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
+
+                    if is_user_still_on_file:
+                        # SCENARIO A: User is still on the same file -> Show green diffs & review bar immediately
+                        self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
                         self.pending_ai_diffs = diffs_found
                         self.update_table_display()
                         self.update_review_bar()
-                        extra_terms = f" ({len(new_terms_recorded)} kosakata baru dicatat ke Kamus)" if new_terms_recorded else ""
-                        tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
                         self.info_status_lbl.config(
                             text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{tm_info}{extra_terms} (klik {Icons.ACCEPT} per baris atau Accept All)", 
                             foreground="#155724"
                         )
                     else:
-                        # SCENARIO B: User navigated away -> Auto-save directly to SQLite & .dat, update metadata
-                        log.info(f"User navigated to another file. Auto-saving background AI result for '{target_filename}'...")
-
-                        if matched_idx >= 0:
-                            it = self.file_items[matched_idx]
-                            if not it.get("is_virtual") and os.path.isabs(it.get("dat_path", "")):
-                                try:
-                                    self.codec.write_file(it["dat_path"], result)
-                                except Exception as w_ex:
-                                    log.warning(f"Could not write .dat on disk for {target_filename}: {w_ex}")
-                            else:
-                                mod_dir = os.path.join(self.db.project_dir, "modified", os.path.dirname(target_rel_path))
-                                os.makedirs(mod_dir, exist_ok=True)
-                                mod_dat = os.path.join(mod_dir, target_filename)
-                                try:
-                                    self.codec.write_file(mod_dat, result)
-                                    it["dat_path"] = mod_dat
-                                except Exception as w_ex:
-                                    log.warning(f"Could not write virtual mod_dat for {target_filename}: {w_ex}")
-
-                        stat, diffs, total, is_manual = self.db.save_file_translation(
-                            target_filename,
-                            target_rel_path,
-                            target_orig_lines,
-                            result
-                        )
-
-                        if matched_idx >= 0:
-                            it = self.file_items[matched_idx]
-                            it["status"] = stat
-                            it["diffs"] = diffs
-                            it["total"] = total
-                            it["is_manual"] = is_manual
-                            self.update_tree_item_display(matched_idx)
-
-                        self.update_progress_summary()
-                        extra_terms = f" ({len(new_terms_recorded)} istilah baru)" if new_terms_recorded else ""
+                        # SCENARIO B: User navigated away -> Staged in cache, show sparkle in treeview!
+                        log.info(f"AI translation for '{target_filename}' staged with {len(diffs_found)} diffs waiting for user review.")
                         self.info_status_lbl.config(
-                            text=f"{Icons.ACCEPT} AI Translate '{target_filename}' selesai di latar belakang ({diffs} baris diubah){extra_terms}.",
+                            text=f"{Icons.AI_SPARKLE} AI Translate '{target_filename}' selesai! {len(diffs_found)} baris siap di-review saat file dibuka{tm_info}{extra_terms}.",
                             foreground="#155724"
                         )
+
+                    if matched_idx >= 0:
+                        self.update_tree_item_display(matched_idx)
 
                 self.after(0, on_success)
             except Exception as e:
@@ -1941,15 +1943,34 @@ class ClassicDATStudioApp(tk.Tk):
             self.current_trans_lines.append("")
         self.current_trans_lines[line_idx] = new_text
 
+        cur_fname = self.file_items[self.current_file_index]['filename']
+        if cur_fname in getattr(self, "file_pending_ai_diffs", {}):
+            if self.pending_ai_diffs:
+                self.file_pending_ai_diffs[cur_fname] = dict(self.pending_ai_diffs)
+            else:
+                self.file_pending_ai_diffs.pop(cur_fname, None)
+                self.file_pending_ai_meta.pop(cur_fname, None)
+                self.update_tree_item_display(self.current_file_index)
+
         self._update_table_row(line_idx)
         self.update_review_bar()
         self.auto_save()
-        log.info(f"Accepted AI translation for line {line_idx} in {self.file_items[self.current_file_index]['filename']}")
+        log.info(f"Accepted AI translation for line {line_idx} in {cur_fname}")
 
     def discard_single_ai_diff(self, line_idx: int):
         if line_idx not in self.pending_ai_diffs:
             return
         del self.pending_ai_diffs[line_idx]
+
+        cur_fname = self.file_items[self.current_file_index]['filename']
+        if cur_fname in getattr(self, "file_pending_ai_diffs", {}):
+            if self.pending_ai_diffs:
+                self.file_pending_ai_diffs[cur_fname] = dict(self.pending_ai_diffs)
+            else:
+                self.file_pending_ai_diffs.pop(cur_fname, None)
+                self.file_pending_ai_meta.pop(cur_fname, None)
+                self.update_tree_item_display(self.current_file_index)
+
         self._update_table_row(line_idx)
         self.update_review_bar()
         self.info_status_lbl.config(text=f"{Icons.DISCARD} Translasi baris {line_idx} dibatalkan.", foreground="#C62828")
@@ -1966,27 +1987,40 @@ class ClassicDATStudioApp(tk.Tk):
             self.current_trans_lines[idx] = new_text
         self.pending_ai_diffs.clear()
 
+        cur_fname = self.file_items[self.current_file_index]['filename']
+        if cur_fname in getattr(self, "file_pending_ai_diffs", {}):
+            self.file_pending_ai_diffs.pop(cur_fname, None)
+            self.file_pending_ai_meta.pop(cur_fname, None)
+
         self.update_table_display()
         self.update_review_bar()
         self.auto_save()
+        self.update_tree_item_display(self.current_file_index)
         self.info_status_lbl.config(
             text=f"{Icons.ACCEPT} {count} baris translasi AI diterima & tersimpan otomatis!", 
             foreground="#2E7D32"
         )
-        log.info(f"Accepted all {count} AI translations in {self.file_items[self.current_file_index]['filename']}")
+        log.info(f"Accepted all {count} AI translations in {cur_fname}")
 
     def discard_all_ai_diffs(self):
         if not self.pending_ai_diffs:
             return
         count = len(self.pending_ai_diffs)
         self.pending_ai_diffs.clear()
+
+        cur_fname = self.file_items[self.current_file_index]['filename']
+        if cur_fname in getattr(self, "file_pending_ai_diffs", {}):
+            self.file_pending_ai_diffs.pop(cur_fname, None)
+            self.file_pending_ai_meta.pop(cur_fname, None)
+
         self.update_table_display()
         self.update_review_bar()
+        self.update_tree_item_display(self.current_file_index)
         self.info_status_lbl.config(
             text=f"{Icons.DISCARD} {count} baris translasi AI dibatalkan.", 
             foreground="#C62828"
         )
-        log.info(f"Discarded all {count} AI translations in {self.file_items[self.current_file_index]['filename']}")
+        log.info(f"Discarded all {count} AI translations in {cur_fname}")
 
     def update_review_bar(self):
         count = len(self.pending_ai_diffs)
@@ -1995,10 +2029,10 @@ class ClassicDATStudioApp(tk.Tk):
                 text=f"{Icons.SEARCH} {count} baris hasil AI Translate menunggu review (git diff):"
             )
             self.review_accept_all_btn.config(text=f"{Icons.ACCEPT} Accept All ({count})")
-            if not self.review_bar.winfo_ismapped():
+            if not self.review_bar.winfo_manager():
                 self.review_bar.pack(fill=tk.X, padx=5, pady=3, before=self.search_frame)
         else:
-            if self.review_bar.winfo_ismapped():
+            if self.review_bar.winfo_manager():
                 self.review_bar.pack_forget()
 
     def _update_table_row(self, line_idx: int):

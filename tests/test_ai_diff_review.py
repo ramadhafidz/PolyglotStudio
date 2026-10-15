@@ -222,20 +222,34 @@ class TestAIDiffReview(unittest.TestCase):
         self.assertEqual(self.app.current_trans_lines, ["Good morning"])
         self.assertEqual(len(self.app.pending_ai_diffs), 0)
 
-        # 2. File 0's translation MUST be auto-saved to SQLite directly
-        self.app.db.save_file_translation.assert_called_once_with(
-            "file0.dat",
-            "common/file0.dat",
-            ["Hello", "World", "Pikachu"],
-            ["Halo", "Dunia", "Pikachu"]
-        )
+        # 2. File 0's diffs MUST be safely staged in file_pending_ai_diffs for user review (NOT auto-saved without consent)
+        self.assertIn("file0.dat", self.app.file_pending_ai_diffs)
+        self.assertEqual(self.app.file_pending_ai_diffs["file0.dat"], {0: "Halo", 1: "Dunia"})
 
-        # 3. File 0's metadata in file_items must reflect the saved status
-        self.assertEqual(self.app.file_items[0]["status"], "completed")
-        self.assertEqual(self.app.file_items[0]["diffs"], 2)
-
-        # 4. active_ai_tasks must be clean
+        # 3. active_ai_tasks must be clean
         self.assertNotIn("file0.dat", self.app.active_ai_tasks)
+
+        # 4. When user clicks back to File 0, pending diffs & green review bar MUST be restored!
+        self.app.db.get_file_full_data = MagicMock(return_value=(
+            ["Hello", "World", "Pikachu"],
+            ["Hello", "World", "Pikachu"]
+        ))
+        self.app.load_file(0)
+
+        self.assertEqual(self.app.current_file_index, 0)
+        self.assertEqual(len(self.app.pending_ai_diffs), 2)
+        self.assertIn(0, self.app.pending_ai_diffs)
+        self.assertIn(1, self.app.pending_ai_diffs)
+        self.assertEqual(self.app.review_bar.winfo_manager(), "pack")
+
+        # 5. User reviews and accepts all diffs
+        with patch.object(ClassicDATStudioApp, "auto_save"):
+            self.app.accept_all_ai_diffs()
+
+        self.assertEqual(self.app.current_trans_lines[0], "Halo")
+        self.assertEqual(self.app.current_trans_lines[1], "Dunia")
+        self.assertEqual(len(self.app.pending_ai_diffs), 0)
+        self.assertNotIn("file0.dat", self.app.file_pending_ai_diffs)
 
 
 if __name__ == "__main__":
