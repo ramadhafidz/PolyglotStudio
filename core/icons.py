@@ -57,4 +57,6 @@ class Icons:
     WARNING = "\uE7BA"       # Warning triangle
     ERROR = "\uE783"         # Error symbol
     REPAIR = "\uE90F"        # Auto-fix / Repair wrench
+    VIEW = "\uE890"          # Eye / View preview
+    COPY = "\uE8C8"          # Copy document / clipboard
 

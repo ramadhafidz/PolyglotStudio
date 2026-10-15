@@ -22,6 +22,7 @@ from core.syntax_highlighter import DialogueSyntaxHighlighter
 from core.asset_classifier import AssetClassifier, AssetType
 from core.trpfs_client import TrpfsClient
 from gui.viewers.texture_viewer import TextureViewer
+from gui.tooltip import set_tooltip
 
 class ClassicDATStudioApp(tk.Tk):
     """
@@ -106,7 +107,7 @@ class ClassicDATStudioApp(tk.Tk):
         # Build UI layout with PanedWindow
         self.create_layout()
 
-        # Keyboard Shortcuts
+        # Enhanced Global Keyboard Shortcuts (Desktop UX)
         self.bind('<Control-z>', self.undo)
         self.bind('<Control-Z>', self.undo)
         self.bind('<Control-y>', self.redo)
@@ -117,6 +118,19 @@ class ClassicDATStudioApp(tk.Tk):
         self.bind('<Control-S>', lambda e: self.save_file(silent=False))
         self.bind('<Control-f>', lambda e: (self.search_entry.focus_set(), self.search_entry.select_range(0, tk.END)))
         self.bind('<Control-F>', lambda e: (self.search_entry.focus_set(), self.search_entry.select_range(0, tk.END)))
+        self.bind('<Control-Shift-f>', lambda e: self.focus_file_search())
+        self.bind('<Control-Shift-F>', lambda e: self.focus_file_search())
+        self.bind('<F5>', lambda e: self.deploy_to_eden())
+        self.bind('<Control-Shift-t>', lambda e: self.translate_with_ai())
+        self.bind('<Control-Shift-T>', lambda e: self.translate_with_ai())
+        self.bind('<Alt-Up>', lambda e: self.prev_file())
+        self.bind('<Alt-Down>', lambda e: self.next_file())
+        self.bind('<Control-comma>', lambda e: self.open_settings_modal())
+        self.bind('<Control-g>', lambda e: self.open_glossary_dialog())
+        self.bind('<Control-G>', lambda e: self.open_glossary_dialog())
+        self.bind('<F2>', lambda e: self.open_current_selected_edit_dialog())
+        self.bind('<Control-o>', lambda e: self.open_romfs())
+        self.bind('<Control-O>', lambda e: self.open_romfs())
 
         # Auto-detect RomFS dump or fallback to legacy English directory
         default_dump = os.path.join(self.settings.get("eden_dump_path", ""), self.settings.get("active_game_id", ""), "romfs")
@@ -234,7 +248,7 @@ class ClassicDATStudioApp(tk.Tk):
 
         # File Menu
         file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="Open RomFS...", command=self.open_romfs)
+        file_menu.add_command(label="Open RomFS...", accelerator="Ctrl+O", command=self.open_romfs)
         file_menu.add_command(label="Switch RomFS Folder...", command=self.open_romfs)
         file_menu.add_command(label="Open Folder...", command=self.open_folder)
         file_menu.add_separator()
@@ -251,26 +265,33 @@ class ClassicDATStudioApp(tk.Tk):
         edit_menu.add_command(label="Undo", accelerator="Ctrl+Z", command=self.undo)
         edit_menu.add_command(label="Redo", accelerator="Ctrl+Y", command=self.redo)
         edit_menu.add_separator()
+        edit_menu.add_command(label="Edit Selected Line", accelerator="F2 / Enter", command=self.open_current_selected_edit_dialog)
         edit_menu.add_command(label="Auto-Fix All Tags", command=self.auto_fix_all_tags)
+        edit_menu.add_separator()
         edit_menu.add_command(
             label="Find in File...", 
             accelerator="Ctrl+F", 
             command=lambda: (self.search_entry.focus_set(), self.search_entry.select_range(0, tk.END))
         )
+        edit_menu.add_command(
+            label="Find in Project (Files)...",
+            accelerator="Ctrl+Shift+F",
+            command=self.focus_file_search
+        )
         menubar.add_cascade(label="Edit", menu=edit_menu)
 
         # AI & Tools Menu
         ai_menu = tk.Menu(menubar, tearoff=0)
-        ai_menu.add_command(label="Translate Active File (AI)", command=self.translate_with_ai)
+        ai_menu.add_command(label="Translate Active File (AI)", accelerator="Ctrl+Shift+T", command=self.translate_with_ai)
         ai_menu.add_command(label="Batch AI Translation...", command=self.open_batch_translate_dialog)
         ai_menu.add_separator()
-        ai_menu.add_command(label="Glossary / Terminology...", command=self.open_glossary_dialog)
-        ai_menu.add_command(label="AI Settings...", command=self.open_settings_modal)
+        ai_menu.add_command(label="Glossary / Terminology...", accelerator="Ctrl+G", command=self.open_glossary_dialog)
+        ai_menu.add_command(label="AI Settings...", accelerator="Ctrl+,", command=self.open_settings_modal)
         menubar.add_cascade(label="AI & Tools", menu=ai_menu)
 
         # Modding Menu
         modding_menu = tk.Menu(menubar, tearoff=0)
-        modding_menu.add_command(label="1-Click LayeredFS Mod Deployer...", command=self.deploy_to_eden)
+        modding_menu.add_command(label="1-Click LayeredFS Mod Deployer...", accelerator="F5", command=self.deploy_to_eden)
         modding_menu.add_command(label="Mod Manager...", command=self.open_mod_manager)
         menubar.add_cascade(label="Modding", menu=modding_menu)
 
@@ -290,24 +311,35 @@ class ClassicDATStudioApp(tk.Tk):
             sep.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=3)
 
         # Primary Core Actions (High Frequency)
-        ttk.Button(top_frame, text=f"{Icons.ROMFS} Open RomFS", command=self.open_romfs).pack(side=tk.LEFT, padx=2)
+        self.open_romfs_btn = ttk.Button(top_frame, text=f"{Icons.ROMFS} Open RomFS", command=self.open_romfs)
+        self.open_romfs_btn.pack(side=tk.LEFT, padx=2)
+        set_tooltip(self.open_romfs_btn, "Open Switch RomFS dump directory to load game assets (Ctrl+O)")
+
         self.save_btn = ttk.Button(top_frame, text=f"{Icons.SAVE} Save", command=self.save_file, state=tk.DISABLED)
         self.save_btn.pack(side=tk.LEFT, padx=2)
+        set_tooltip(self.save_btn, "Save translations to project database and file (Ctrl+S)")
 
         _add_sep()
 
         # AI & Translation Actions
         self.ai_btn = ttk.Button(top_frame, text=f"{Icons.AI_SPARKLE} Translate AI", command=self.translate_with_ai, state=tk.DISABLED)
         self.ai_btn.pack(side=tk.LEFT, padx=2)
+        set_tooltip(self.ai_btn, "Translate active dialogue file using configured AI model (Ctrl+Shift+T)")
+
         self.batch_btn = ttk.Button(top_frame, text=f"{Icons.BATCH} Batch AI", command=self.open_batch_translate_dialog, state=tk.NORMAL)
         self.batch_btn.pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text=f"{Icons.GLOSSARY} Glossary", command=self.open_glossary_dialog).pack(side=tk.LEFT, padx=2)
+        set_tooltip(self.batch_btn, "Batch translate multiple dialogue files automatically")
+
+        self.glossary_btn = ttk.Button(top_frame, text=f"{Icons.GLOSSARY} Glossary", command=self.open_glossary_dialog)
+        self.glossary_btn.pack(side=tk.LEFT, padx=2)
+        set_tooltip(self.glossary_btn, "Manage terminology dictionary and character names (Ctrl+G)")
 
         _add_sep()
 
         # Deployment Action
         self.deploy_btn = ttk.Button(top_frame, text=f"{Icons.DEPLOY} Deploy Mod", command=self.deploy_to_eden, state=tk.NORMAL)
         self.deploy_btn.pack(side=tk.LEFT, padx=2)
+        set_tooltip(self.deploy_btn, "1-Click LayeredFS Mod Deployer to emulator directory (F5)")
 
         # Non-toolbar button attributes maintained for compatibility
         self.export_btn = None
@@ -321,15 +353,20 @@ class ClassicDATStudioApp(tk.Tk):
             top_frame, 
             text=f"{Icons.AI_BOT} {self.ai.model}", 
             foreground="#6A1B9A", 
-            font=("Segoe UI", 9, "bold")
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2"
         )
         self.ai_badge_lbl.pack(side=tk.RIGHT, padx=(4, 8))
+        self.ai_badge_lbl.bind("<Button-1>", lambda e: self.open_settings_modal())
+        set_tooltip(self.ai_badge_lbl, f"Active AI Model: {self.ai.model} (Provider: {self.ai.provider})\nClick to open Settings")
 
-        ttk.Button(
+        self.settings_btn = ttk.Button(
             top_frame, 
             text=f"{Icons.SETTINGS} Settings", 
             command=self.open_settings_modal
-        ).pack(side=tk.RIGHT, padx=4)
+        )
+        self.settings_btn.pack(side=tk.RIGHT, padx=4)
+        set_tooltip(self.settings_btn, "Configure AI providers, emulator paths, and preferences (Ctrl+,)")
 
         # ----------------- Main Resizable PanedWindow -----------------
         self.paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -351,37 +388,46 @@ class ClassicDATStudioApp(tk.Tk):
             command=self.open_romfs
         )
         self.switch_romfs_btn.pack(side=tk.RIGHT, padx=(4, 0))
+        set_tooltip(self.switch_romfs_btn, "Switch RomFS subfolder or reload game assets")
         self.progress_lbl = ttk.Label(fe_header, text="", foreground="#007ACC", font=("Arial", 9))
         self.progress_lbl.pack(side=tk.RIGHT)
 
-        # File Search & Filter
+        # File Search & Filter (Horizontal compact layout)
         search_filter_f = ttk.Frame(self.left_frame)
         search_filter_f.pack(fill=tk.X, padx=5, pady=2)
 
         self.fe_search_var = tk.StringVar()
         self.fe_search_var.trace_add("write", lambda *args: self.filter_file_tree())
-        fe_search_entry = ttk.Entry(search_filter_f, textvariable=self.fe_search_var)
-        fe_search_entry.pack(fill=tk.X, pady=(0, 2))
+        self.fe_search_entry = ttk.Entry(search_filter_f, textvariable=self.fe_search_var)
+        self.fe_search_entry.pack(fill=tk.X, pady=(0, 2))
+        set_tooltip(self.fe_search_entry, "Search files by name or path (Ctrl+Shift+F)")
+
+        filter_row = ttk.Frame(search_filter_f)
+        filter_row.pack(fill=tk.X, pady=(0, 2))
 
         self.fe_filter_var = tk.StringVar(value="All Status")
         filter_cb = ttk.Combobox(
-            search_filter_f, 
+            filter_row, 
             textvariable=self.fe_filter_var, 
             values=["All Status", "Untranslated", "Completed"], 
-            state="readonly"
+            state="readonly",
+            width=12
         )
-        filter_cb.pack(fill=tk.X, pady=(0, 2))
+        filter_cb.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
         filter_cb.bind('<<ComboboxSelected>>', lambda e: self.filter_file_tree())
+        set_tooltip(filter_cb, "Filter files by translation status")
 
         self.asset_filter_var = tk.StringVar(value=AssetClassifier.CATEGORY_LABELS[0])
         asset_cb = ttk.Combobox(
-            search_filter_f,
+            filter_row,
             textvariable=self.asset_filter_var,
             values=AssetClassifier.CATEGORY_LABELS,
-            state="readonly"
+            state="readonly",
+            width=12
         )
-        asset_cb.pack(fill=tk.X)
+        asset_cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
         asset_cb.bind('<<ComboboxSelected>>', lambda e: self.filter_file_tree())
+        set_tooltip(asset_cb, "Filter files by asset type (Dialogue, Texture, Script, etc.)")
 
         # Treeview for File Explorer
         tree_container = ttk.Frame(self.left_frame)
@@ -404,8 +450,6 @@ class ClassicDATStudioApp(tk.Tk):
 
         # Context Menu for Treeview
         self.tree_context_menu = tk.Menu(self, tearoff=0)
-        self.tree_context_menu.add_command(label=f"{Icons.STATUS_DONE} Mark as Completed", command=lambda: self.set_context_status("completed"))
-        self.tree_context_menu.add_command(label=f"{Icons.STATUS_TODO} Mark as Untranslated", command=lambda: self.set_context_status("untranslated"))
 
         # =============================================================
         # RIGHT PANE: Editor (Table, Navigation, Search)
@@ -417,10 +461,15 @@ class ClassicDATStudioApp(tk.Tk):
         info_bar = ttk.Frame(self.right_frame)
         info_bar.pack(fill=tk.X, padx=5, pady=(5, 3))
 
-        ttk.Button(info_bar, text=Icons.PREV, width=3, command=self.prev_file).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(info_bar, text=Icons.NEXT, width=3, command=self.next_file).pack(side=tk.LEFT, padx=(0, 6))
+        prev_btn = ttk.Button(info_bar, text=Icons.PREV, width=3, command=self.prev_file)
+        prev_btn.pack(side=tk.LEFT, padx=(0, 2))
+        set_tooltip(prev_btn, "Previous File (Alt+Up)")
 
-        self.cur_file_lbl = ttk.Label(info_bar, text="Loading file...", font=("Arial", 10, "bold"))
+        next_btn = ttk.Button(info_bar, text=Icons.NEXT, width=3, command=self.next_file)
+        next_btn.pack(side=tk.LEFT, padx=(0, 6))
+        set_tooltip(next_btn, "Next File (Alt+Down)")
+
+        self.cur_file_lbl = ttk.Label(info_bar, text="Loading file...", font=("Segoe UI", 10, "bold"))
         self.cur_file_lbl.pack(side=tk.LEFT)
 
         # Status Checkbox on Right of info_bar
@@ -433,9 +482,12 @@ class ClassicDATStudioApp(tk.Tk):
             status_frame,
             text=f"{Icons.STATUS_TODO} Untranslated",
             variable=self.status_done_var,
-            command=self.on_status_checkbox_toggled
+            command=self.on_status_checkbox_toggled,
+            cursor="hand2"
         )
         self.status_chk.pack(side=tk.LEFT)
+        set_tooltip(self.status_chk, "Toggle file completion status (Completed / Untranslated)")
+
 
         # AI Diff Review Banner Bar (shown only when pending AI translations exist)
         self.review_bar = tk.Frame(self.right_frame, bg="#E6FFEC", relief="solid", bd=1, padx=6, pady=4)
@@ -478,13 +530,21 @@ class ClassicDATStudioApp(tk.Tk):
         self.search_entry = ttk.Entry(self.search_frame, textvariable=self.search_var, width=28)
         self.search_entry.pack(side=tk.LEFT, padx=5)
         self.search_entry.bind('<KeyRelease>', self.search_text)
+        set_tooltip(self.search_entry, "Search dialogue text in active file (Ctrl+F)")
 
-        ttk.Button(self.search_frame, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=3)
+        clear_btn = ttk.Button(self.search_frame, text="Clear", command=self.clear_search)
+        clear_btn.pack(side=tk.LEFT, padx=3)
+        set_tooltip(clear_btn, "Clear search text")
 
         nav_frame = ttk.Frame(self.search_frame)
         nav_frame.pack(side=tk.LEFT, padx=6)
-        ttk.Button(nav_frame, text=Icons.UP, width=2, command=self.prev_search_result).pack(side=tk.LEFT)
-        ttk.Button(nav_frame, text=Icons.DOWN, width=2, command=self.next_search_result).pack(side=tk.LEFT)
+        up_btn = ttk.Button(nav_frame, text=Icons.UP, width=2, command=self.prev_search_result)
+        up_btn.pack(side=tk.LEFT)
+        set_tooltip(up_btn, "Previous search match (Shift+F3)")
+
+        down_btn = ttk.Button(nav_frame, text=Icons.DOWN, width=2, command=self.next_search_result)
+        down_btn.pack(side=tk.LEFT)
+        set_tooltip(down_btn, "Next search match (F3)")
 
         self.search_status = ttk.Label(self.search_frame, text="")
         self.search_status.pack(side=tk.LEFT, padx=5)
@@ -601,23 +661,68 @@ class ClassicDATStudioApp(tk.Tk):
         self.inspector_orig_box.bind("<Double-1>", lambda e: self.open_current_selected_edit_dialog())
         self.inspector_trans_box.bind("<Double-1>", lambda e: self.open_current_selected_edit_dialog())
 
+        # Inspector Text Boxes Context Menu
+        self.inspector_context_menu = tk.Menu(self, tearoff=0)
+        self.inspector_context_menu.add_command(label="Copy", command=self._copy_inspector_selection)
+        self.inspector_context_menu.add_command(label="Select All", command=self._select_all_inspector)
+
+        def _show_insp_menu(e, box):
+            self._active_insp_box = box
+            self.inspector_context_menu.post(e.x_root, e.y_root)
+
+        self.inspector_orig_box.bind("<Button-3>", lambda e: _show_insp_menu(e, self.inspector_orig_box))
+        self.inspector_trans_box.bind("<Button-3>", lambda e: _show_insp_menu(e, self.inspector_trans_box))
+
         # Bottom Bar for Text Editor
         bottom_frame = ttk.Frame(self.text_editor_container)
         bottom_frame.pack(fill=tk.X, padx=5, pady=4)
 
-        ttk.Button(bottom_frame, text="Add Line", command=self.add_line).pack(side=tk.LEFT)
-        ttk.Button(bottom_frame, text="Remove Line", command=self.remove_line).pack(side=tk.LEFT, padx=5)
-        self.toggle_inspector_btn = ttk.Button(bottom_frame, text="Hide Inspector", command=self.toggle_inspector)
-        self.toggle_inspector_btn.pack(side=tk.LEFT, padx=5)
+        add_line_btn = ttk.Button(bottom_frame, text=f"{Icons.ACCEPT} Add Line", command=self.add_line)
+        add_line_btn.pack(side=tk.LEFT)
+        set_tooltip(add_line_btn, "Add a new blank dialogue line at the end")
 
-        self.info_status_lbl = ttk.Label(bottom_frame, text="Ready.", foreground="green")
+        del_line_btn = ttk.Button(bottom_frame, text=f"{Icons.DISCARD} Delete Line", command=self.remove_line)
+        del_line_btn.pack(side=tk.LEFT, padx=5)
+        set_tooltip(del_line_btn, "Delete currently selected dialogue line")
+
+        self.toggle_inspector_btn = ttk.Button(bottom_frame, text=f"{Icons.VIEW} Hide Inspector", command=self.toggle_inspector)
+        self.toggle_inspector_btn.pack(side=tk.LEFT, padx=5)
+        set_tooltip(self.toggle_inspector_btn, "Show or hide bottom syntax highlight dialogue inspector")
+
+        self.info_status_lbl = ttk.Label(bottom_frame, text="Ready.", foreground="#2E7D32")
         self.info_status_lbl.pack(side=tk.RIGHT, padx=10)
 
         # =============================================================
         # Workspace 2: Texture & Image Localization Viewer
         # =============================================================
         self.texture_viewer = TextureViewer(self.right_frame, on_status_change=self.on_texture_status_change)
-        log.debug("Layout created with multi-workspace support.")
+        
+        # PanedWindow Sash minimum guards (prevents collapsing panels to 0px)
+        def _guard_main_sash(event=None):
+            try:
+                cur = self.paned.sashpos(0)
+                total_w = self.paned.winfo_width()
+                if cur < 220:
+                    self.paned.sashpos(0, 220)
+                elif total_w > 500 and cur > total_w - 350:
+                    self.paned.sashpos(0, total_w - 350)
+            except Exception:
+                pass
+        self.paned.bind("<ButtonRelease-1>", _guard_main_sash, add="+")
+
+        def _guard_right_sash(event=None):
+            try:
+                cur = self.right_paned.sashpos(0)
+                total_h = self.right_paned.winfo_height()
+                if cur < 180:
+                    self.right_paned.sashpos(0, 180)
+                elif total_h > 300 and cur > total_h - 100:
+                    self.right_paned.sashpos(0, total_h - 100)
+            except Exception:
+                pass
+        self.right_paned.bind("<ButtonRelease-1>", _guard_right_sash, add="+")
+
+        log.debug("Layout created with multi-workspace support and desktop guards.")
 
     # ----------------- File Loading & Tree Building -----------------
     def open_romfs(self):
@@ -1042,11 +1147,106 @@ class ClassicDATStudioApp(tk.Tk):
                 self.file_tree.item(node_id, text=item_text)
                 break
 
+    def focus_file_search(self):
+        """Focuses and selects the file explorer search entry."""
+        if hasattr(self, 'fe_search_entry'):
+            self.fe_search_entry.focus_set()
+            self.fe_search_entry.select_range(0, tk.END)
+
+    def update_info_status(self, text: str, is_error: bool = False):
+        """Helper to update bottom status label with semantic color."""
+        if hasattr(self, 'info_status_lbl'):
+            fg = "#D32F2F" if is_error else "#2E7D32"
+            self.info_status_lbl.config(text=text, foreground=fg)
+
+    def _copy_to_clipboard(self, text: str):
+        """Copies string to system clipboard with visual feedback."""
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update_info_status(f"Copied to clipboard: {text}")
+        except Exception as e:
+            log.warning(f"Failed to copy to clipboard: {e}")
+
+    def _reveal_file_in_explorer(self, item: Dict[str, Any]):
+        """Opens Windows File Explorer showing the parent directory of this file."""
+        try:
+            filepath = item.get("filepath", "")
+            if filepath and os.path.exists(filepath):
+                folder = os.path.dirname(os.path.abspath(filepath))
+                os.startfile(folder)
+            elif self.current_romfs_path and os.path.exists(self.current_romfs_path):
+                os.startfile(self.current_romfs_path)
+            else:
+                self._copy_to_clipboard(item.get("rel_path", ""))
+        except Exception as e:
+            log.warning(f"Could not reveal in explorer: {e}")
+
+    def _copy_inspector_selection(self):
+        box = getattr(self, "_active_insp_box", None)
+        if box:
+            try:
+                selected_text = box.get(tk.SEL_FIRST, tk.SEL_LAST)
+                self._copy_to_clipboard(selected_text)
+            except tk.TclError:
+                # No selection, copy all
+                self._copy_to_clipboard(box.get("1.0", "end-1c"))
+
+    def _select_all_inspector(self):
+        box = getattr(self, "_active_insp_box", None)
+        if box:
+            box.tag_add(tk.SEL, "1.0", tk.END)
+            box.mark_set(tk.INSERT, "1.0")
+            box.see(tk.INSERT)
+
     def show_tree_context_menu(self, event):
         item_id = self.file_tree.identify_row(event.y)
-        if item_id and item_id in self.tree_item_to_index:
-            self._context_item_idx = self.tree_item_to_index[item_id]
-            self.tree_context_menu.post(event.x_root, event.y_root)
+        if not item_id or item_id not in self.tree_item_to_index:
+            return
+
+        self.file_tree.selection_set(item_id)
+        self._context_item_idx = self.tree_item_to_index[item_id]
+        idx = self._context_item_idx
+        item = self.file_items[idx]
+
+        self.tree_context_menu.delete(0, tk.END)
+        self.tree_context_menu.add_command(
+            label=f"{Icons.VIEW} Open File", 
+            command=lambda: self.load_file(idx)
+        )
+        self.tree_context_menu.add_separator()
+
+        atype = item.get("asset_type", AssetType.TEXT)
+        if atype == AssetType.TEXT:
+            self.tree_context_menu.add_command(
+                label=f"{Icons.AI_SPARKLE} Translate with AI", 
+                command=lambda: (self.load_file(idx), self.after(100, self.translate_with_ai))
+            )
+            self.tree_context_menu.add_command(
+                label=f"{Icons.EXPORT} Export to TXT...", 
+                command=lambda: (self.load_file(idx), self.export_txt())
+            )
+            self.tree_context_menu.add_separator()
+
+        self.tree_context_menu.add_command(
+            label=f"{Icons.COPY} Copy Relative Path", 
+            command=lambda: self._copy_to_clipboard(item.get("rel_path", item.get("filename", "")))
+        )
+        self.tree_context_menu.add_command(
+            label=f"{Icons.FOLDER} Reveal in File Explorer", 
+            command=lambda: self._reveal_file_in_explorer(item)
+        )
+        self.tree_context_menu.add_separator()
+        self.tree_context_menu.add_command(
+            label=f"{Icons.STATUS_DONE} Mark as Completed", 
+            command=lambda: self.set_context_status("completed")
+        )
+        self.tree_context_menu.add_command(
+            label=f"{Icons.STATUS_TODO} Mark as Untranslated", 
+            command=lambda: self.set_context_status("untranslated")
+        )
+
+        self.tree_context_menu.post(event.x_root, event.y_root)
 
     def set_context_status(self, override: Optional[str]):
         idx = getattr(self, "_context_item_idx", self.current_file_index)
@@ -1300,7 +1500,9 @@ class ClassicDATStudioApp(tk.Tk):
                 foreground="#155724"
             )
 
-        self.cur_file_lbl.config(text=f"File: {item['rel_path']}")
+        dirty_flag = " ●" if self.pending_ai_diffs else ""
+        self.cur_file_lbl.config(text=f"File: {item['rel_path']}{dirty_flag}")
+        self.title(f"Polyglot Studio — {item['filename']}{dirty_flag}")
         self.update_status_selector(
             item["status"], 
             diffs=diffs, 
@@ -2187,6 +2389,12 @@ class ClassicDATStudioApp(tk.Tk):
 
     def update_review_bar(self):
         count = len(self.pending_ai_diffs)
+        dirty_flag = " ●" if count > 0 else ""
+        if 0 <= self.current_file_index < len(self.file_items):
+            item = self.file_items[self.current_file_index]
+            self.cur_file_lbl.config(text=f"File: {item['rel_path']}{dirty_flag}")
+            self.title(f"Polyglot Studio — {item['filename']}{dirty_flag}")
+
         if count > 0:
             self.review_info_lbl.config(
                 text=f"{Icons.SEARCH} {count} AI translated line(s) awaiting review (git diff):"
@@ -2265,6 +2473,9 @@ class ClassicDATStudioApp(tk.Tk):
         except (ValueError, IndexError):
             return
 
+        orig_text = str(vals[2]) if len(vals) > 2 else ""
+        trans_text = str(vals[3]) if len(vals) > 3 else ""
+
         self.table_context_menu.delete(0, tk.END)
         if line_idx in self.pending_ai_diffs:
             self.table_context_menu.add_command(
@@ -2287,15 +2498,79 @@ class ClassicDATStudioApp(tk.Tk):
             self.table_context_menu.add_separator()
 
         self.table_context_menu.add_command(
-            label=f"{Icons.EDIT} Edit Line...", 
+            label=f"{Icons.EDIT} Edit Line... (Enter / F2)", 
             command=lambda: self.open_edit_dialog(
                 line_idx, 
-                vals[2], 
-                vals[3], 
+                orig_text, 
+                trans_text, 
                 row_id
             )
         )
+        self.table_context_menu.add_separator()
+        self.table_context_menu.add_command(
+            label=f"{Icons.COPY} Copy Original (English)", 
+            command=lambda: self._copy_to_clipboard(orig_text)
+        )
+        self.table_context_menu.add_command(
+            label=f"{Icons.COPY} Copy Translation", 
+            command=lambda: self._copy_to_clipboard(trans_text)
+        )
+        self.table_context_menu.add_separator()
+        self.table_context_menu.add_command(
+            label=f"{Icons.AI_SPARKLE} Translate This Line (AI)", 
+            command=lambda idx=line_idx, orig=orig_text, row=row_id: self._translate_single_table_line(idx, orig, row)
+        )
+        self.table_context_menu.add_command(
+            label=f"{Icons.UNDO} Revert to Original English", 
+            command=lambda idx=line_idx, orig=orig_text, row=row_id: self._revert_single_table_line(idx, orig, row)
+        )
         self.table_context_menu.post(event.x_root, event.y_root)
+
+    def _translate_single_table_line(self, line_idx: int, orig_text: str, row_id: str):
+        if not orig_text.strip():
+            return
+        self.update_info_status(f"Translating line {line_idx} with AI...")
+        def worker():
+            try:
+                glossary_block = ""
+                try:
+                    glossary_block = self.db.get_glossary_prompt_block()
+                except Exception:
+                    pass
+                res = self.ai.translate_lines([orig_text], target_lang="Indonesian", glossary_block=glossary_block)
+                if res and line_idx < len(self.current_trans_lines):
+                    new_text = TagGuard.sanitize_line(orig_text, res[0])
+                    def apply():
+                        self.push_undo_state()
+                        self.current_trans_lines[line_idx] = new_text
+                        if line_idx in self.pending_ai_diffs:
+                            del self.pending_ai_diffs[line_idx]
+                            self.update_review_bar()
+                        valid, _ = TagGuard.validate_line(orig_text, new_text)
+                        row_tag = "even" if line_idx % 2 == 0 else "odd"
+                        tags = (row_tag,) if valid else (row_tag, "tag_error")
+                        self.table.item(row_id, values=(line_idx, "", orig_text, new_text), tags=tags)
+                        self.auto_save()
+                        self.update_inspector(line_idx, orig_text, new_text)
+                        self.update_info_status(f"Line {line_idx} translated successfully.")
+                    self.after(0, apply)
+            except Exception as e:
+                log.error(f"Failed to translate line {line_idx}: {e}", exc_info=True)
+                self.after(0, lambda: self.update_info_status(f"AI translation failed: {e}", is_error=True))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _revert_single_table_line(self, line_idx: int, orig_text: str, row_id: str):
+        if line_idx < len(self.current_trans_lines):
+            self.push_undo_state()
+            self.current_trans_lines[line_idx] = orig_text
+            if line_idx in self.pending_ai_diffs:
+                del self.pending_ai_diffs[line_idx]
+                self.update_review_bar()
+            row_tag = "even" if line_idx % 2 == 0 else "odd"
+            self.table.item(row_id, values=(line_idx, "", orig_text, orig_text), tags=(row_tag,))
+            self.auto_save()
+            self.update_inspector(line_idx, orig_text, orig_text)
+            self.update_info_status(f"Line {line_idx} reverted to original English.")
 
     # ----------------- 1-Click LayeredFS Mod Deployer -----------------
     def deploy_to_eden(self):
