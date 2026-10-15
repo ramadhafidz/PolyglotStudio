@@ -235,6 +235,7 @@ class ClassicDATStudioApp(tk.Tk):
         # File Menu
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Open RomFS...", command=self.open_romfs)
+        file_menu.add_command(label="Switch RomFS Folder...", command=self.open_romfs)
         file_menu.add_command(label="Open Folder...", command=self.open_folder)
         file_menu.add_separator()
         file_menu.add_command(label="Save", accelerator="Ctrl+S", command=lambda: self.save_file(silent=False))
@@ -352,6 +353,12 @@ class ClassicDATStudioApp(tk.Tk):
         fe_header = ttk.Frame(self.left_frame)
         fe_header.pack(fill=tk.X, padx=5, pady=(5, 3))
         ttk.Label(fe_header, text=f"{Icons.FOLDER} File Explorer", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
+        self.switch_romfs_btn = ttk.Button(
+            fe_header,
+            text=f"{Icons.SYNC} Switch Folder",
+            command=self.open_romfs
+        )
+        self.switch_romfs_btn.pack(side=tk.RIGHT, padx=(4, 0))
         self.progress_lbl = ttk.Label(fe_header, text="", foreground="#007ACC", font=("Arial", 9))
         self.progress_lbl.pack(side=tk.RIGHT)
 
@@ -622,13 +629,48 @@ class ClassicDATStudioApp(tk.Tk):
 
     # ----------------- File Loading & Tree Building -----------------
     def open_romfs(self):
-        folder_path = filedialog.askdirectory(title="Select RomFS Dump Folder (containing 'arc' folder)")
-        if folder_path:
-            self.load_romfs_directory(folder_path)
+        # Determine candidate RomFS path
+        candidate_path = self.current_romfs_path or ""
+        if not candidate_path:
+            candidate_path = os.path.join(self.settings.get("eden_dump_path", ""), self.settings.get("active_game_id", ""), "romfs")
+            if not os.path.isdir(candidate_path) or not os.path.exists(os.path.join(candidate_path, "arc", "data.trpfd")):
+                candidate_path = ""
 
-    def load_romfs_directory(self, romfs_path: str):
+        if not candidate_path:
+            dump_folder = filedialog.askdirectory(title="Select RomFS Dump Folder (containing 'arc' folder)")
+            if not dump_folder:
+                return
+            candidate_path = os.path.abspath(dump_folder)
+
+        from gui.dialogs.romfs_folder_dialog import RomFSFolderDialog
+        dialog = RomFSFolderDialog(
+            self,
+            romfs_path=candidate_path,
+            current_subfolder=getattr(self, "current_romfs_subfolder", "message/dat/English"),
+            trpfs_client=self.trpfs_client
+        )
+        self.wait_window(dialog)
+
+        if dialog.result is not None:
+            self.load_romfs_directory(
+                romfs_path=dialog.result["romfs_path"],
+                subfolder=dialog.result["subfolder"],
+                asset_filter=dialog.result["asset_filter"],
+                moddable_only=dialog.result["moddable_only"]
+            )
+
+    def load_romfs_directory(
+        self, 
+        romfs_path: str, 
+        subfolder: str = "message/dat/English", 
+        asset_filter: str = "all", 
+        moddable_only: bool = True
+    ):
         romfs_path = os.path.abspath(romfs_path)
-        log.info(f"Opening RomFS directory: {romfs_path}")
+        self.current_romfs_subfolder = subfolder
+        self.current_romfs_asset_filter = asset_filter
+        self.current_romfs_moddable_only = moddable_only
+        log.info(f"Opening RomFS directory: {romfs_path} (subfolder='{subfolder}', filter='{asset_filter}', moddable={moddable_only})")
 
         trpfd = os.path.join(romfs_path, "arc", "data.trpfd")
         if not os.path.exists(trpfd):
@@ -638,7 +680,8 @@ class ClassicDATStudioApp(tk.Tk):
             )
             return
 
-        self.info_status_lbl.config(text=f"{Icons.SYNC} Loading RomFS...", foreground="#007ACC")
+        disp_folder = subfolder if subfolder else "Entire RomFS"
+        self.info_status_lbl.config(text=f"{Icons.SYNC} Querying RomFS files ({disp_folder})...", foreground="#007ACC")
         self.update_idletasks()
 
         def _worker():
@@ -652,37 +695,69 @@ class ClassicDATStudioApp(tk.Tk):
                     pass
                 return
 
-            raw_files = self.trpfs_client.list_files("message/dat/English")
-            log.info(f"Retrieved {len(raw_files)} files from RomFS in {(time.time()-t0)*1000:.1f}ms")
+            raw_files = self.trpfs_client.list_files(subfolder)
+            log.info(f"Retrieved {len(raw_files)} files from RomFS matching '{subfolder}' in {(time.time()-t0)*1000:.1f}ms")
 
             try:
-                self.after(0, lambda: self._on_romfs_files_loaded(romfs_path, raw_files, t0))
+                self.after(0, lambda: self._on_romfs_files_loaded(
+                    romfs_path, raw_files, t0, subfolder, asset_filter, moddable_only
+                ))
             except Exception:
                 pass
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_romfs_files_loaded(self, romfs_path: str, raw_files: List[Dict[str, str]], t0: float):
+    def _on_romfs_files_loaded(
+        self, 
+        romfs_path: str, 
+        raw_files: List[Dict[str, str]], 
+        t0: float, 
+        subfolder: str = "message/dat/English", 
+        asset_filter: str = "all", 
+        moddable_only: bool = True
+    ):
         self.is_romfs_mode = True
         self.current_romfs_path = romfs_path
+        self.current_romfs_subfolder = subfolder
         self.file_items = []
         db_statuses = self.db.get_all_file_statuses()
 
-        prefix = "message/dat/English/"
+        prefix = subfolder.strip("/") + "/" if subfolder.strip("/") else ""
+        skipped_non_moddable = 0
+
+        # Known non-moddable / engine internal extensions to filter out if moddable_only is True
+        IGNORED_ENGINE_EXTS = {
+            ".tbl", ".bin", ".trsot", ".trtml", ".trmtr", ".tracm", 
+            ".tracp", ".tracr", ".trmdl", ".trmsh", ".truiv", 
+            ".trscn", ".trskl", ".tranm", ".tracl", ".truis", 
+            ".trmbf", ".tracn", ".tracs", ".ptcl"
+        }
+
         for item in raw_files:
             vpath = item["rel_path"]
             fname = item["filename"]
+            ext = os.path.splitext(fname)[1].lower()
 
-            # Filter to dialogue .dat files (skip internal Game Freak .tbl tables)
-            if not fname.lower().endswith(".dat"):
+            # Skip internal engine binary tables if requested
+            if moddable_only and ext in IGNORED_ENGINE_EXTS:
+                skipped_non_moddable += 1
                 continue
 
-            if vpath.startswith(prefix):
+            atype = AssetClassifier.get_asset_type(fname)
+            if asset_filter == "text" and atype != AssetType.TEXT:
+                continue
+            elif asset_filter == "texture" and atype != AssetType.TEXTURE:
+                continue
+            elif asset_filter == "font" and atype != AssetType.FONT:
+                continue
+            elif asset_filter == "audio" and atype != AssetType.AUDIO:
+                continue
+
+            if prefix and vpath.startswith(prefix):
                 disp_rel = vpath[len(prefix):]
             else:
                 disp_rel = vpath
 
-            atype = AssetClassifier.get_asset_type(fname)
             db_info = db_statuses.get(fname)
             if db_info:
                 status = db_info["status"]
@@ -691,7 +766,12 @@ class ClassicDATStudioApp(tk.Tk):
                 status_override = db_info.get("status_override")
                 is_manual = db_info.get("is_manual", False)
             else:
-                status = "untranslated"
+                if atype == AssetType.TEXTURE:
+                    trans_p = self.get_translated_asset_path(disp_rel)
+                    has_trans = bool(trans_p and os.path.exists(trans_p) and os.path.getsize(trans_p) > 0)
+                    status = "completed" if has_trans else "untranslated"
+                else:
+                    status = "untranslated"
                 diffs = 0
                 total = 0
                 status_override = None
@@ -722,11 +802,12 @@ class ClassicDATStudioApp(tk.Tk):
         self.update_progress_summary()
         self.populate_file_tree()
 
+        disp_folder_name = subfolder if subfolder else "Entire RomFS"
         self.info_status_lbl.config(
-            text=f"{Icons.ROMFS} RomFS active ({len(self.file_items)} .dat files, {dt:.0f}ms)", 
+            text=f"{Icons.ROMFS} RomFS [{disp_folder_name}]: {len(self.file_items)} files ({dt:.0f}ms)", 
             foreground="#2E7D32"
         )
-        log.info(f"RomFS populated with {len(self.file_items)} files in {dt:.1f}ms")
+        log.info(f"RomFS populated with {len(self.file_items)} files from '{subfolder}' in {dt:.1f}ms (skipped {skipped_non_moddable} internal engine files)")
 
         if self.file_items:
             self.load_file(0)
@@ -1093,14 +1174,15 @@ class ClassicDATStudioApp(tk.Tk):
                 self.review_bar.pack_forget()
             if hasattr(self, 'texture_viewer'):
                 self.texture_viewer.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
-                trans_p = self.get_translated_asset_path(item["rel_path"])
+                asset_full_rel = item.get("romfs_path", item["rel_path"])
+                trans_p = self.get_translated_asset_path(asset_full_rel)
                 file_p = item.get("file_path", item.get("dat_path"))
                 if item.get("is_virtual") and (not file_p or not os.path.exists(file_p)):
                     cache_dir = os.path.join(self.db.project_dir, "romfs_cache")
-                    cache_orig_p = os.path.join(cache_dir, item["rel_path"])
+                    cache_orig_p = os.path.join(cache_dir, asset_full_rel)
                     os.makedirs(os.path.dirname(cache_orig_p), exist_ok=True)
                     if not os.path.exists(cache_orig_p):
-                        self.trpfs_client.extract_file_to_disk(item.get("romfs_path", item["rel_path"]), cache_orig_p)
+                        self.trpfs_client.extract_file_to_disk(asset_full_rel, cache_orig_p)
                     file_p = cache_orig_p
                 self.texture_viewer.load_texture(file_p, trans_p, item)
 
