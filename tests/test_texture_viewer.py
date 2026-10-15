@@ -136,6 +136,51 @@ class TestAppMultiWorkspaceRouting(unittest.TestCase):
         self.assertEqual(self.app.text_editor_container.winfo_manager(), "pack")
         self.assertEqual(self.app.texture_viewer.winfo_manager(), "")
 
+    def test_virtual_bntx_triggers_extract_texture_png(self):
+        self.app.file_items = [
+            {
+                "filename": "logo_brand_8076.bntx",
+                "rel_path": "logo_brand/logo_brand_8076.bntx",
+                "romfs_path": "appli/tex/logo_brand/logo_brand_8076/logo_brand_8076.bntx",
+                "asset_type": AssetType.TEXTURE,
+                "status": "untranslated",
+                "is_virtual": True,
+                "is_manual": False
+            }
+        ]
+
+        exists_map = {
+            "extract_called": False
+        }
+
+        def _mock_exists(path):
+            if str(path).endswith(".png"):
+                # First check returns False to trigger extraction, then True
+                return exists_map["extract_called"]
+            return False
+
+        def _mock_extract(src, dst):
+            exists_map["extract_called"] = True
+            return True
+
+        with patch.object(self.app.trpfs_client, "extract_texture_png", side_effect=_mock_extract) as mock_extract, \
+             patch.object(self.app.texture_viewer, "load_texture") as mock_load, \
+             patch("os.makedirs"), \
+             patch("os.path.exists", side_effect=_mock_exists):
+            self.app.load_file(0)
+            mock_extract.assert_called_once()
+            args = mock_extract.call_args[0]
+            self.assertEqual(args[0], "appli/tex/logo_brand/logo_brand_8076/logo_brand_8076.bntx")
+            self.assertTrue(args[1].endswith(".png"))
+            mock_load.assert_called_once()
+
+    def test_bntx_translated_asset_path(self):
+        bntx_rel = "appli/tex/logo_brand/logo_brand_8076.bntx"
+        trans_path = self.app.get_translated_asset_path(bntx_rel)
+        # Should look for .png replacement by default
+        self.assertTrue(trans_path.endswith(".png"))
+
 
 if __name__ == "__main__":
     unittest.main()
+

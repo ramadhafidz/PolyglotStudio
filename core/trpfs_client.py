@@ -153,6 +153,7 @@ class TrpfsClient:
         if not self.is_loaded or not self._ensure_process():
             return False
 
+        out_path = os.path.abspath(out_path)
         try:
             self.process.stdin.write(f"EXTRACT {target} {out_path}\n")
             self.process.stdin.flush()
@@ -164,6 +165,28 @@ class TrpfsClient:
             return False
         except Exception as e:
             log.error(f"Exception extracting {target} to {out_path}: {e}", exc_info=True)
+            return False
+
+    def extract_texture_png(self, target: str, out_png_path: str) -> bool:
+        """
+        Extracts a texture file and converts it to a standard PNG on-demand.
+        If the file is a Nintendo Switch BNTX archive, it is decoded via BnTxx into PNG.
+        """
+        if not self.is_loaded or not self._ensure_process():
+            return False
+
+        out_png_path = os.path.abspath(out_png_path)
+        try:
+            self.process.stdin.write(f"EXTRACT_PNG {target} {out_png_path}\n")
+            self.process.stdin.flush()
+            response = self.process.stdout.readline().strip()
+
+            if response.startswith("EXTRACTED_PNG"):
+                return True
+            log.error(f"Failed to extract PNG {target} -> {out_png_path}: {response}")
+            return False
+        except Exception as e:
+            log.error(f"Exception extracting PNG {target} to {out_png_path}: {e}", exc_info=True)
             return False
 
     def close(self):

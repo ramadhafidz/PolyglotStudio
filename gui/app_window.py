@@ -767,7 +767,7 @@ class ClassicDATStudioApp(tk.Tk):
                 is_manual = db_info.get("is_manual", False)
             else:
                 if atype == AssetType.TEXTURE:
-                    trans_p = self.get_translated_asset_path(disp_rel)
+                    trans_p = self.get_translated_asset_path(vpath)
                     has_trans = bool(trans_p and os.path.exists(trans_p) and os.path.getsize(trans_p) > 0)
                     status = "completed" if has_trans else "untranslated"
                 else:
@@ -1116,7 +1116,16 @@ class ClassicDATStudioApp(tk.Tk):
         log.info(f"Status override applied for {item['filename']}: {override} -> {eff_status}")
 
     def get_translated_asset_path(self, rel_path: str) -> str:
-        return os.path.join(self.mod_assets_dir, rel_path)
+        direct_p = os.path.join(self.mod_assets_dir, rel_path)
+        if os.path.exists(direct_p):
+            return direct_p
+        # If original asset is .bntx, check if translated .png exists
+        if rel_path.lower().endswith(".bntx"):
+            png_p = os.path.join(self.mod_assets_dir, os.path.splitext(rel_path)[0] + ".png")
+            if os.path.exists(png_p):
+                return png_p
+            return png_p
+        return direct_p
 
     def on_texture_status_change(self, is_done: bool):
         if self.current_file_index < 0 or self.current_file_index >= len(self.file_items):
@@ -1177,13 +1186,32 @@ class ClassicDATStudioApp(tk.Tk):
                 asset_full_rel = item.get("romfs_path", item["rel_path"])
                 trans_p = self.get_translated_asset_path(asset_full_rel)
                 file_p = item.get("file_path", item.get("dat_path"))
-                if item.get("is_virtual") and (not file_p or not os.path.exists(file_p)):
-                    cache_dir = os.path.join(self.db.project_dir, "romfs_cache")
-                    cache_orig_p = os.path.join(cache_dir, asset_full_rel)
-                    os.makedirs(os.path.dirname(cache_orig_p), exist_ok=True)
-                    if not os.path.exists(cache_orig_p):
-                        self.trpfs_client.extract_file_to_disk(asset_full_rel, cache_orig_p)
-                    file_p = cache_orig_p
+                is_bntx = asset_full_rel.lower().endswith(".bntx")
+                cache_dir = os.path.join(getattr(self, "workspace_dir", self.db.project_dir), "romfs_cache")
+
+                if item.get("is_virtual"):
+                    if is_bntx:
+                        # Extract and decode Nintendo Switch BNTX to PNG preview
+                        cache_png_p = os.path.join(cache_dir, os.path.splitext(asset_full_rel)[0] + ".png")
+                        if not os.path.exists(cache_png_p):
+                            os.makedirs(os.path.dirname(cache_png_p), exist_ok=True)
+                            self.trpfs_client.extract_texture_png(asset_full_rel, cache_png_p)
+                        file_p = cache_png_p if os.path.exists(cache_png_p) else ""
+                    else:
+                        cache_orig_p = os.path.join(cache_dir, asset_full_rel)
+                        if not os.path.exists(cache_orig_p):
+                            os.makedirs(os.path.dirname(cache_orig_p), exist_ok=True)
+                            self.trpfs_client.extract_file_to_disk(asset_full_rel, cache_orig_p)
+                        file_p = cache_orig_p
+                elif is_bntx and file_p and os.path.exists(file_p):
+                    # Local BNTX file loaded from disk via open_folder
+                    cache_png_p = os.path.join(cache_dir, os.path.splitext(asset_full_rel)[0] + ".png")
+                    if not os.path.exists(cache_png_p):
+                        os.makedirs(os.path.dirname(cache_png_p), exist_ok=True)
+                        self.trpfs_client.extract_texture_png(file_p, cache_png_p)
+                    if os.path.exists(cache_png_p):
+                        file_p = cache_png_p
+
                 self.texture_viewer.load_texture(file_p, trans_p, item)
 
             self.ai_btn.config(state=tk.DISABLED)

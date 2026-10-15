@@ -51,6 +51,9 @@ class Program
                     case "EXTRACT":
                         HandleExtract(arg);
                         break;
+                    case "EXTRACT_PNG":
+                        HandleExtractPng(arg);
+                        break;
                     case "PING":
                         Console.WriteLine("PONG");
                         break;
@@ -203,6 +206,110 @@ class Program
         {
             var base64 = Convert.ToBase64String(bytes);
             Console.WriteLine($"BASE64 {bytes.Length} {base64}");
+        }
+    }
+
+    static void HandleExtractPng(string arg)
+    {
+        var parts = arg.Split(' ', 2);
+        var target = parts[0].Trim('"');
+        var outPath = parts.Length > 1 ? parts[1].Trim('"') : null;
+
+        if (string.IsNullOrEmpty(outPath))
+        {
+            Console.WriteLine("ERR Output path missing for EXTRACT_PNG");
+            return;
+        }
+
+        byte[] bytes = null;
+
+        if (File.Exists(target))
+        {
+            try
+            {
+                bytes = File.ReadAllBytes(target);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERR Failed to read local file {target}: {ex.Message}");
+                return;
+            }
+        }
+        else
+        {
+            if (_extractor == null)
+            {
+                Console.WriteLine("ERR Not loaded");
+                return;
+            }
+
+            ulong hash = 0;
+            if (target.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                hash = Convert.ToUInt64(target.Substring(2), 16);
+            }
+            else if (ulong.TryParse(target, out var parsedHash))
+            {
+                hash = parsedHash;
+            }
+            else if (!_pathToHash.TryGetValue(target, out hash))
+            {
+                Console.WriteLine($"ERR File path not found in cache: {target}");
+                return;
+            }
+
+            var extType = _extractor.GetType();
+            var tryGetMethod = extType.GetMethod("TryGetFileBytes");
+            object[] methodParams = new object[] { hash, null };
+            bool success = (bool)tryGetMethod.Invoke(_extractor, methodParams);
+
+            if (!success || methodParams[1] == null)
+            {
+                Console.WriteLine($"ERR Failed to extract hash: 0x{hash:x16}");
+                return;
+            }
+
+            bytes = (byte[])methodParams[1];
+        }
+
+        try
+        {
+            var dir = Path.GetDirectoryName(outPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            // Check if file is BNTX format
+            if (bytes.Length >= 8 && bytes[0] == (byte)'B' && bytes[1] == (byte)'N' && bytes[2] == (byte)'T' && bytes[3] == (byte)'X')
+            {
+                var tempBntx = outPath + ".tmp.bntx";
+                File.WriteAllBytes(tempBntx, bytes);
+                try
+                {
+                    using (var bmp = BnTxx.BNTX.LoadFromFile(tempBntx))
+                    {
+                        if (bmp != null)
+                        {
+                            bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                            Console.WriteLine($"EXTRACTED_PNG {bmp.Width}x{bmp.Height} {outPath}");
+                            return;
+                        }
+                    }
+                }
+                finally
+                {
+                    if (File.Exists(tempBntx))
+                    {
+                        try { File.Delete(tempBntx); } catch { }
+                    }
+                }
+            }
+
+            // Fallback for files that are already PNG or standard image formats
+            File.WriteAllBytes(outPath, bytes);
+            Console.WriteLine($"EXTRACTED_PNG raw {outPath}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ERR Failed to decode/write PNG: {ex.Message}");
         }
     }
 }

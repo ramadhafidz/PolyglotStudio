@@ -22,6 +22,9 @@
     <Reference Include="FlatSharp">
       <HintPath>D:\Environtment\utilities\trinity\fileexplorer\FlatSharp.dll</HintPath>
     </Reference>
+    <Reference Include="BnTxx">
+      <HintPath>lib\BnTxx.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>

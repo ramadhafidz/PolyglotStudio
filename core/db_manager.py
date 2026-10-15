@@ -14,7 +14,8 @@ class ProjectDB:
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        self.project_dir = os.path.dirname(os.path.abspath(db_path))
+        os.makedirs(self.project_dir, exist_ok=True)
         self.init_db()
 
     def get_connection(self) -> sqlite3.Connection:

@@ -141,7 +141,7 @@ class TextureViewer(ttk.Frame):
 
         self.status_hint_lbl = ttk.Label(
             bottom, 
-            text="Tip: PNG, DDS, and TGA formats are supported.", 
+            text="Tip: Nintendo Switch BNTX, PNG, DDS, and TGA textures supported.", 
             foreground="#666666",
             font=("Segoe UI", 9)
         )
@@ -155,7 +155,7 @@ class TextureViewer(ttk.Frame):
         self.current_trans_path = trans_path
         self.current_item = item_dict
 
-        filename = os.path.basename(orig_path)
+        filename = item_dict.get("filename") if (item_dict and item_dict.get("filename")) else os.path.basename(orig_path)
         self.title_lbl.config(text=f"{Icons.IMAGE} {filename}")
 
         self.orig_image_obj = None
