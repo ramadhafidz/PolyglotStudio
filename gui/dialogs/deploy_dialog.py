@@ -89,7 +89,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
 
         desc_lbl = ttk.Label(
             header,
-            text="Hanya mengompilasi file yang telah dimodifikasi (diffs > 0 atau selesai), "
+            text="Hanya mengompilasi file yang benar-benar memiliki perubahan (diffs > 0 untuk teks/dialog), "
                  "menghasilkan struktur folder LayeredFS romfs/... yang bersih, kompatibel, dan siap pakai.",
             font=("Arial", 9),
             foreground="#555555",

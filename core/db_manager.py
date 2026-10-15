@@ -144,14 +144,23 @@ class ProjectDB:
 
     def get_modified_files(self) -> List[Dict[str, Any]]:
         """
-        Retrieves all files that have user modifications (diffs > 0, status == 'completed', or status_override == 'completed').
+        Retrieves all files that have genuine user modifications ready for deployment.
+        Strict Rule:
+        - For text dialogue files (asset_type == 'text' or NULL): diffs MUST be > 0.
+          Files with diffs == 0 are untouched/syntax-only and excluded, even if marked 'completed'
+          (users often mark syntax-only files 'completed' as a checklist to avoid clutter).
+        - For non-text assets (textures, audio, etc.):
+          status == 'completed' or status_override == 'completed' or diffs > 0.
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
             SELECT id, filename, rel_path, status, status_override, diffs, total_lines, asset_type, updated_at
             FROM files
-            WHERE diffs > 0 OR status = 'completed' OR status_override = 'completed'
+            WHERE diffs > 0 OR (
+                COALESCE(asset_type, 'text') != 'text' 
+                AND (status = 'completed' OR status_override = 'completed')
+            )
             ORDER BY filename ASC
             """)
             return [dict(row) for row in cursor.fetchall()]

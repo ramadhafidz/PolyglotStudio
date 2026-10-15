@@ -130,6 +130,67 @@ class TestLayeredFSDeployer(unittest.TestCase):
             expected_dat = f"atmosphere/contents/{self.title_id}/romfs/message/dat/English/common/msg.dat"
             self.assertIn(expected_dat, [n.replace("\\", "/") for n in namelist])
 
+    def test_completed_file_with_zero_diffs_is_not_deployed(self):
+        """
+        Verify that a text file marked 'completed' for checklist/organization purposes,
+        but having 0 diffs (e.g. pure engine syntax or untouched lines), is NOT deployed.
+        Only files with real modifications (diffs > 0) or non-text assets are deployed.
+        """
+        # 1. Text file with 0 diffs marked completed (e.g. pure syntax checked by user)
+        self.db.save_file_translation(
+            filename="syntax_script.dat",
+            rel_path="script/syntax_script.dat",
+            orig_lines=["[~ 14] 00 00", "[~ 15] 01 02"],
+            trans_lines=["[~ 14] 00 00", "[~ 15] 01 02"]
+        )
+        self.db.set_file_status_override("syntax_script.dat", "script/syntax_script.dat", "completed")
+
+        # 2. Text file with genuine diffs (diffs = 1)
+        self.db.save_file_translation(
+            filename="dialogue.dat",
+            rel_path="script/dialogue.dat",
+            orig_lines=["Hello!", "Thank you!"],
+            trans_lines=["Halo!", "Thank you!"]
+        )
+
+        # 3. Non-text texture asset marked completed
+        self.db.upsert_asset_file(
+            filename="custom_logo.png",
+            rel_path="ui/custom_logo.png",
+            status="completed",
+            asset_type="texture"
+        )
+        # Create physical asset file
+        full_png = os.path.join(self.assets_dir, "ui", "custom_logo.png")
+        os.makedirs(os.path.dirname(full_png), exist_ok=True)
+        with open(full_png, "wb") as f:
+            f.write(b"PNG_DATA")
+
+        # Query items
+        items = self.deployer.get_modified_items()
+        item_filenames = [it["filename"] for it in items]
+
+        # syntax_script.dat MUST NOT be in items (diffs == 0)
+        self.assertNotIn("syntax_script.dat", item_filenames, "Syntax-only file with 0 diffs must be excluded")
+        # dialogue.dat MUST be in items (diffs == 1)
+        self.assertIn("dialogue.dat", item_filenames)
+        # custom_logo.png MUST be in items (texture marked completed)
+        self.assertIn("custom_logo.png", item_filenames)
+
+        # Execute deployment and confirm file system output
+        target_stage = os.path.join(self.temp_dir.name, "deployed_test_zero_diff")
+        result = self.deployer.deploy_to_directory(target_stage, clean_old=True)
+
+        self.assertTrue(result.success)
+        syntax_dest = os.path.join(target_stage, "romfs", "message", "dat", "English", "script", "syntax_script.dat")
+        dialogue_dest = os.path.join(target_stage, "romfs", "message", "dat", "English", "script", "dialogue.dat")
+        logo_dest = os.path.join(target_stage, "romfs", "ui", "custom_logo.png")
+
+        self.assertFalse(os.path.exists(syntax_dest), "syntax_script.dat must NOT be written to LayeredFS romfs")
+        self.assertTrue(os.path.exists(dialogue_dest), "dialogue.dat MUST be written to LayeredFS romfs")
+        self.assertTrue(os.path.exists(logo_dest), "custom_logo.png MUST be written to LayeredFS romfs")
+
 
 if __name__ == "__main__":
     unittest.main()
+

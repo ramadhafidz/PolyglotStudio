@@ -70,6 +70,13 @@ class LayeredFSDeployer:
             fname = f["filename"]
             rel_p = f["rel_path"].replace("\\", "/")
             atype = f.get("asset_type") or AssetClassifier.get_asset_type(fname)
+            diffs = f.get("diffs", 0)
+
+            # Strict Rule: Text dialogue files (.dat, etc.) must have diffs > 0.
+            # Untouched files or syntax-only files marked completed must never be deployed.
+            if atype == AssetType.TEXT or str(atype).lower() == "text" or fname.lower().endswith(".dat"):
+                if diffs <= 0:
+                    continue
 
             # Build exact destination path relative to RomFS root
             if atype == AssetType.TEXT or fname.lower().endswith(".dat"):
@@ -85,7 +92,7 @@ class LayeredFSDeployer:
                 "rel_path": rel_p,
                 "romfs_rel_path": romfs_rel,
                 "asset_type": atype,
-                "diffs": f.get("diffs", 0),
+                "diffs": diffs,
                 "total_lines": f.get("total_lines", 0),
                 "source": "db"
             })
@@ -171,7 +178,9 @@ class LayeredFSDeployer:
                     progress_cb(i, tot, fname)
 
                 # A. Text File (compile from DB lines)
-                if atype == AssetType.TEXT or fname.lower().endswith(".dat"):
+                if atype == AssetType.TEXT or str(atype).lower() == "text" or fname.lower().endswith(".dat"):
+                    if item.get("diffs", 0) <= 0:
+                        continue
                     lines = self.db.get_file_lines(fname)
                     if lines is not None:
                         compiled_bytes = self.codec.encode_lines(lines)
