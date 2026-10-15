@@ -97,7 +97,7 @@ class TestAIBatchingAndFiltering(unittest.TestCase):
             }]
             # Should not raise exception
             app.load_file(0)
-            self.assertIn("Format berkas", app.info_status_lbl.cget("text"))
+            self.assertTrue("File format" in app.info_status_lbl.cget("text") or "Format berkas" in app.info_status_lbl.cget("text"))
         finally:
             try:
                 app.destroy()

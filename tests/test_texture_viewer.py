@@ -127,7 +127,7 @@ class TestAppMultiWorkspaceRouting(unittest.TestCase):
         # Texture viewer should be packed, text editor container should be unpacked
         self.assertEqual(self.app.texture_viewer.winfo_manager(), "pack")
         self.assertEqual(self.app.text_editor_container.winfo_manager(), "")
-        self.assertIn("Gambar:", self.app.cur_file_lbl.cget("text"))
+        self.assertTrue("Image:" in self.app.cur_file_lbl.cget("text") or "Gambar:" in self.app.cur_file_lbl.cget("text"))
 
         # Switch back to file 0 (Text)
         self.app.db.get_file_full_data.return_value = (["Hello"], ["Halo"])

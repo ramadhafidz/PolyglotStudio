@@ -78,10 +78,10 @@ class AssetClassifier:
     }
 
     CATEGORY_LABELS: List[str] = [
-        "Semua File",
-        "Teks Dialog (.dat, .txt)",
-        "Gambar & Textures (.png, .dds, .bntx)",
-        "Font & Typography (.ttf, .bffnt)",
+        "All Files",
+        "Dialogue Text (.dat, .txt)",
+        "Images & Textures (.png, .dds, .bntx)",
+        "Fonts & Typography (.ttf, .bffnt)",
         "Audio / Voice (.wav, .bwav)",
     ]
 
@@ -102,16 +102,17 @@ class AssetClassifier:
 
     @classmethod
     def matches_category_filter(cls, file_path: str, filter_name: str) -> bool:
-        if not filter_name or filter_name == "Semua File":
+        if not filter_name or filter_name in ("All Files", "Semua File"):
             return True
         atype = cls.get_asset_type(file_path)
-        if "Teks" in filter_name:
-            return atype == AssetType.TEXT
-        elif "Gambar" in filter_name or "Texture" in filter_name:
+        fn_lower = filter_name.lower()
+        if "texture" in fn_lower or "gambar" in fn_lower or "image" in fn_lower:
             return atype == AssetType.TEXTURE
-        elif "Font" in filter_name:
+        elif "dialogue" in fn_lower or "dialog" in fn_lower or "teks" in fn_lower or ("text" in fn_lower and "texture" not in fn_lower):
+            return atype == AssetType.TEXT
+        elif "font" in fn_lower or "tipografi" in fn_lower:
             return atype == AssetType.FONT
-        elif "Audio" in filter_name:
+        elif "audio" in fn_lower or "voice" in fn_lower or "suara" in fn_lower:
             return atype == AssetType.AUDIO
         return True
 

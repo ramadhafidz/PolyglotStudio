@@ -115,6 +115,8 @@ class ClassicDATStudioApp(tk.Tk):
         self.bind('<Control-Shift-Z>', self.redo)
         self.bind('<Control-s>', lambda e: self.save_file(silent=False))
         self.bind('<Control-S>', lambda e: self.save_file(silent=False))
+        self.bind('<Control-f>', lambda e: (self.search_entry.focus_set(), self.search_entry.select_range(0, tk.END)))
+        self.bind('<Control-F>', lambda e: (self.search_entry.focus_set(), self.search_entry.select_range(0, tk.END)))
 
         # Auto-detect RomFS dump or fallback to legacy English directory
         default_dump = os.path.join(self.settings.get("eden_dump_path", ""), self.settings.get("active_game_id", ""), "romfs")
@@ -140,16 +142,18 @@ class ClassicDATStudioApp(tk.Tk):
         if active_count > 0 or pending_files:
             msg_parts = []
             if active_count > 0:
-                msg_parts.append(f"• {active_count} proses translasi AI masih berjalan di latar belakang.")
+                msg_parts.append(f"• {active_count} AI translation task(s) are still running in the background.")
             if pending_files:
                 names = ", ".join(pending_files[:3])
                 if len(pending_files) > 3:
-                    names += f", dan {len(pending_files) - 3} file lainnya"
-                msg_parts.append(f"• Terdapat translasi AI yang belum di-accept/review pada: {names}.")
-            msg_text = "\n".join(msg_parts) + "\n\nApakah Anda yakin ingin tetap menutup aplikasi?"
-            if not messagebox.askyesno("Konfirmasi Keluar", msg_text):
+                    names += f", and {len(pending_files) - 3} other file(s)"
+                msg_parts.append(f"• There are unaccepted AI translations awaiting review in: {names}.")
+            msg_text = "\n".join(msg_parts) + "\n\nAre you sure you want to exit now?"
+            if not messagebox.askyesno("Confirm Exit", msg_text):
                 return
         self.destroy()
+
+    confirm_exit = on_close_window
 
     def destroy(self):
         if hasattr(self, 'trpfs_client') and self.trpfs_client:
@@ -225,54 +229,105 @@ class ClassicDATStudioApp(tk.Tk):
             foreground=[("selected", "#FFFFFF")]
         )
 
+        # ----------------- Top Menu Bar -----------------
+        menubar = tk.Menu(self)
+
+        # File Menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Open RomFS...", command=self.open_romfs)
+        file_menu.add_command(label="Open Folder...", command=self.open_folder)
+        file_menu.add_separator()
+        file_menu.add_command(label="Save", accelerator="Ctrl+S", command=lambda: self.save_file(silent=False))
+        file_menu.add_separator()
+        file_menu.add_command(label="Export TXT...", command=self.export_txt)
+        file_menu.add_command(label="Import TXT...", command=self.import_txt)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", accelerator="Alt+F4", command=self.confirm_exit)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        # Edit Menu
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        edit_menu.add_command(label="Undo", accelerator="Ctrl+Z", command=self.undo)
+        edit_menu.add_command(label="Redo", accelerator="Ctrl+Y", command=self.redo)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Auto-Fix All Tags", command=self.auto_fix_all_tags)
+        edit_menu.add_command(
+            label="Find in File...", 
+            accelerator="Ctrl+F", 
+            command=lambda: (self.search_entry.focus_set(), self.search_entry.select_range(0, tk.END))
+        )
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+
+        # AI & Tools Menu
+        ai_menu = tk.Menu(menubar, tearoff=0)
+        ai_menu.add_command(label="Translate Active File (AI)", command=self.translate_with_ai)
+        ai_menu.add_command(label="Batch AI Translation...", command=self.open_batch_translate_dialog)
+        ai_menu.add_separator()
+        ai_menu.add_command(label="Glossary / Terminology...", command=self.open_glossary_dialog)
+        ai_menu.add_command(label="AI Settings...", command=self.open_settings_modal)
+        menubar.add_cascade(label="AI & Tools", menu=ai_menu)
+
+        # Modding Menu
+        modding_menu = tk.Menu(menubar, tearoff=0)
+        modding_menu.add_command(label="1-Click LayeredFS Mod Deployer...", command=self.deploy_to_eden)
+        modding_menu.add_command(label="Mod Manager...", command=self.open_mod_manager)
+        menubar.add_cascade(label="Modding", menu=modding_menu)
+
+        # Help Menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="About Polyglot Studio", command=self.show_about_dialog)
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.config(menu=menubar)
+
         # ----------------- Top Toolbar Frame -----------------
         top_frame = ttk.Frame(self)
         top_frame.pack(fill=tk.X, padx=5, pady=4)
 
-        ttk.Button(top_frame, text=f"{Icons.ROMFS} Buka RomFS", command=self.open_romfs).pack(side=tk.LEFT)
-        ttk.Button(top_frame, text=f"{Icons.FOLDER} Open Folder", command=self.open_folder).pack(side=tk.LEFT, padx=2)
-        
-        self.save_btn = ttk.Button(top_frame, text=f"{Icons.SAVE} Save .dat", command=self.save_file, state=tk.DISABLED)
-        self.save_btn.pack(side=tk.LEFT, padx=2)
+        def _add_sep():
+            sep = ttk.Separator(top_frame, orient=tk.VERTICAL)
+            sep.pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
-        self.undo_btn = ttk.Button(top_frame, text=f"{Icons.UNDO} Undo", command=self.undo, state=tk.DISABLED)
-        self.undo_btn.pack(side=tk.LEFT, padx=2)
-
-        self.redo_btn = ttk.Button(top_frame, text=f"{Icons.REDO} Redo", command=self.redo, state=tk.DISABLED)
-        self.redo_btn.pack(side=tk.LEFT, padx=2)
-
+        # Group 1: File Operations
+        ttk.Button(top_frame, text=f"{Icons.ROMFS} Open RomFS", command=self.open_romfs).pack(side=tk.LEFT, padx=1)
+        ttk.Button(top_frame, text=f"{Icons.FOLDER} Open Folder", command=self.open_folder).pack(side=tk.LEFT, padx=1)
+        self.save_btn = ttk.Button(top_frame, text=f"{Icons.SAVE} Save", command=self.save_file, state=tk.DISABLED)
+        self.save_btn.pack(side=tk.LEFT, padx=1)
         self.export_btn = ttk.Button(top_frame, text=f"{Icons.EXPORT} Export TXT", command=self.export_txt, state=tk.DISABLED)
-        self.export_btn.pack(side=tk.LEFT, padx=2)
-
+        self.export_btn.pack(side=tk.LEFT, padx=1)
         self.import_btn = ttk.Button(top_frame, text=f"{Icons.IMPORT} Import TXT", command=self.import_txt, state=tk.DISABLED)
-        self.import_btn.pack(side=tk.LEFT, padx=2)
+        self.import_btn.pack(side=tk.LEFT, padx=1)
 
-        # AI Translate Button
+        _add_sep()
+
+        # Group 2: History (Undo/Redo)
+        self.undo_btn = ttk.Button(top_frame, text=f"{Icons.UNDO} Undo", command=self.undo, state=tk.DISABLED)
+        self.undo_btn.pack(side=tk.LEFT, padx=1)
+        self.redo_btn = ttk.Button(top_frame, text=f"{Icons.REDO} Redo", command=self.redo, state=tk.DISABLED)
+        self.redo_btn.pack(side=tk.LEFT, padx=1)
+
+        _add_sep()
+
+        # Group 3: AI & Translation Tools
         self.ai_btn = ttk.Button(top_frame, text=f"{Icons.AI_SPARKLE} Translate AI", command=self.translate_with_ai, state=tk.DISABLED)
-        self.ai_btn.pack(side=tk.LEFT, padx=4)
-
-        # Batch AI Translation
+        self.ai_btn.pack(side=tk.LEFT, padx=1)
         self.batch_btn = ttk.Button(top_frame, text=f"{Icons.BATCH} Batch AI", command=self.open_batch_translate_dialog, state=tk.NORMAL)
-        self.batch_btn.pack(side=tk.LEFT, padx=2)
-
-        # Auto-Fix Tags Button
+        self.batch_btn.pack(side=tk.LEFT, padx=1)
         self.qa_fix_btn = ttk.Button(top_frame, text=f"{Icons.REPAIR} Fix Tags", command=self.auto_fix_all_tags, state=tk.NORMAL)
-        self.qa_fix_btn.pack(side=tk.LEFT, padx=2)
+        self.qa_fix_btn.pack(side=tk.LEFT, padx=1)
+        ttk.Button(top_frame, text=f"{Icons.GLOSSARY} Glossary", command=self.open_glossary_dialog).pack(side=tk.LEFT, padx=1)
 
+        _add_sep()
 
-        # Deploy Mod Button
+        # Group 4: Modding & Deployment
         self.deploy_btn = ttk.Button(top_frame, text=f"{Icons.DEPLOY} Deploy Mod", command=self.deploy_to_eden, state=tk.NORMAL)
-        self.deploy_btn.pack(side=tk.LEFT, padx=2)
+        self.deploy_btn.pack(side=tk.LEFT, padx=1)
+        ttk.Button(top_frame, text=f"{Icons.PACKAGE} Mod Manager", command=self.open_mod_manager).pack(side=tk.LEFT, padx=1)
 
+        _add_sep()
 
-        # Mod Manager Button
-        ttk.Button(top_frame, text=f"{Icons.PACKAGE} Mod Manager", command=self.open_mod_manager).pack(side=tk.LEFT, padx=2)
-
-        # Settings Button
-        ttk.Button(top_frame, text=f"{Icons.SETTINGS} AI Settings", command=self.open_settings_modal).pack(side=tk.LEFT, padx=2)
-
-        # Glossary / Terminology Button
-        ttk.Button(top_frame, text=f"{Icons.GLOSSARY} Kamus Istilah", command=self.open_glossary_dialog).pack(side=tk.LEFT, padx=2)
+        # Group 5: Settings
+        ttk.Button(top_frame, text=f"{Icons.SETTINGS} Settings", command=self.open_settings_modal).pack(side=tk.LEFT, padx=1)
 
         # AI Badge on Top Right
         self.ai_badge_lbl = ttk.Label(
@@ -309,11 +364,11 @@ class ClassicDATStudioApp(tk.Tk):
         fe_search_entry = ttk.Entry(search_filter_f, textvariable=self.fe_search_var)
         fe_search_entry.pack(fill=tk.X, pady=(0, 2))
 
-        self.fe_filter_var = tk.StringVar(value="Semua Status")
+        self.fe_filter_var = tk.StringVar(value="All Status")
         filter_cb = ttk.Combobox(
             search_filter_f, 
             textvariable=self.fe_filter_var, 
-            values=["Semua Status", "Belum", "Sudah"], 
+            values=["All Status", "Untranslated", "Completed"], 
             state="readonly"
         )
         filter_cb.pack(fill=tk.X, pady=(0, 2))
@@ -350,8 +405,8 @@ class ClassicDATStudioApp(tk.Tk):
 
         # Context Menu for Treeview
         self.tree_context_menu = tk.Menu(self, tearoff=0)
-        self.tree_context_menu.add_command(label=f"{Icons.STATUS_DONE} Tandai Sudah", command=lambda: self.set_context_status("completed"))
-        self.tree_context_menu.add_command(label=f"{Icons.STATUS_TODO} Tandai Belum", command=lambda: self.set_context_status("untranslated"))
+        self.tree_context_menu.add_command(label=f"{Icons.STATUS_DONE} Mark as Completed", command=lambda: self.set_context_status("completed"))
+        self.tree_context_menu.add_command(label=f"{Icons.STATUS_TODO} Mark as Untranslated", command=lambda: self.set_context_status("untranslated"))
 
         # =============================================================
         # RIGHT PANE: Editor (Table, Navigation, Search)
@@ -366,7 +421,7 @@ class ClassicDATStudioApp(tk.Tk):
         ttk.Button(info_bar, text=Icons.PREV, width=3, command=self.prev_file).pack(side=tk.LEFT, padx=(0, 2))
         ttk.Button(info_bar, text=Icons.NEXT, width=3, command=self.next_file).pack(side=tk.LEFT, padx=(0, 6))
 
-        self.cur_file_lbl = ttk.Label(info_bar, text="Memuat file...", font=("Arial", 10, "bold"))
+        self.cur_file_lbl = ttk.Label(info_bar, text="Loading file...", font=("Arial", 10, "bold"))
         self.cur_file_lbl.pack(side=tk.LEFT)
 
         # Status Checkbox on Right of info_bar
@@ -377,7 +432,7 @@ class ClassicDATStudioApp(tk.Tk):
         self.status_done_var = tk.BooleanVar(value=False)
         self.status_chk = ttk.Checkbutton(
             status_frame,
-            text=f"{Icons.STATUS_TODO} Belum",
+            text=f"{Icons.STATUS_TODO} Untranslated",
             variable=self.status_done_var,
             command=self.on_status_checkbox_toggled
         )
@@ -388,7 +443,7 @@ class ClassicDATStudioApp(tk.Tk):
         
         self.review_info_lbl = tk.Label(
             self.review_bar, 
-            text=f"{Icons.SEARCH} Perubahan AI Translate siap di-review:", 
+            text=f"{Icons.SEARCH} AI Translation changes ready for review:", 
             bg="#E6FFEC", 
             fg="#155724", 
             font=("Segoe UI", 9, "bold")
@@ -456,10 +511,10 @@ class ClassicDATStudioApp(tk.Tk):
         self.table.heading('accept', text=Icons.ACCEPT, command=self.accept_all_ai_diffs)
         self.table.column('accept', width=35, minwidth=35, anchor='center', stretch=False)
 
-        self.table.heading('orig_text', text='English (Original Game)')
+        self.table.heading('orig_text', text='Original (English)')
         self.table.column('orig_text', width=400, minwidth=250, anchor='w', stretch=False)
 
-        self.table.heading('trans_text', text='Bahasa Indonesia (Hasil Terjemahan)')
+        self.table.heading('trans_text', text='Translation')
         self.table.column('trans_text', width=450, minwidth=250, anchor='w', stretch=True)
 
         v_scroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.table.yview)
@@ -510,7 +565,7 @@ class ClassicDATStudioApp(tk.Tk):
 
         self.inspector_title_lbl = ttk.Label(
             insp_header, 
-            text="Pilih baris pada tabel untuk melihat syntax highlight dialog.", 
+            text="Select a table line to view dialogue syntax highlighting.", 
             font=("Segoe UI", 9, "bold")
         )
         self.inspector_title_lbl.pack(side=tk.LEFT)
@@ -531,8 +586,8 @@ class ClassicDATStudioApp(tk.Tk):
         insp_content.grid_columnconfigure(1, weight=1)
         insp_content.grid_rowconfigure(1, weight=1)
 
-        ttk.Label(insp_content, text="English (Original Game):", font=("Segoe UI", 8, "bold"), foreground="#555555").grid(row=0, column=0, sticky=tk.W, padx=2)
-        ttk.Label(insp_content, text="Bahasa Indonesia (Hasil Terjemahan):", font=("Segoe UI", 8, "bold"), foreground="#555555").grid(row=0, column=1, sticky=tk.W, padx=2)
+        ttk.Label(insp_content, text="Original (English):", font=("Segoe UI", 8, "bold"), foreground="#555555").grid(row=0, column=0, sticky=tk.W, padx=2)
+        ttk.Label(insp_content, text="Translation:", font=("Segoe UI", 8, "bold"), foreground="#555555").grid(row=0, column=1, sticky=tk.W, padx=2)
 
         self.inspector_orig_box = ScrolledText(insp_content, wrap=tk.WORD, height=3, font=("Consolas", 10), background="#F8F9FA")
         self.inspector_orig_box.grid(row=1, column=0, sticky="nsew", padx=(0, 3), pady=1)
@@ -556,7 +611,7 @@ class ClassicDATStudioApp(tk.Tk):
         self.toggle_inspector_btn = ttk.Button(bottom_frame, text="Hide Inspector", command=self.toggle_inspector)
         self.toggle_inspector_btn.pack(side=tk.LEFT, padx=5)
 
-        self.info_status_lbl = ttk.Label(bottom_frame, text="Siap.", foreground="green")
+        self.info_status_lbl = ttk.Label(bottom_frame, text="Ready.", foreground="green")
         self.info_status_lbl.pack(side=tk.RIGHT, padx=10)
 
         # =============================================================
@@ -567,7 +622,7 @@ class ClassicDATStudioApp(tk.Tk):
 
     # ----------------- File Loading & Tree Building -----------------
     def open_romfs(self):
-        folder_path = filedialog.askdirectory(title="Pilih Folder Dump RomFS (yang berisi folder 'arc')")
+        folder_path = filedialog.askdirectory(title="Select RomFS Dump Folder (containing 'arc' folder)")
         if folder_path:
             self.load_romfs_directory(folder_path)
 
@@ -578,26 +633,32 @@ class ClassicDATStudioApp(tk.Tk):
         trpfd = os.path.join(romfs_path, "arc", "data.trpfd")
         if not os.path.exists(trpfd):
             messagebox.showerror(
-                "RomFS Tidak Valid", 
-                f"Folder yang dipilih tidak berisi file 'arc/data.trpfd':\n{romfs_path}\n\nPastikan memilih folder root RomFS hasil dump game."
+                "Invalid RomFS", 
+                f"Selected folder does not contain 'arc/data.trpfd':\n{romfs_path}\n\nPlease select the root directory of the dumped RomFS."
             )
             return
 
-        self.info_status_lbl.config(text=f"{Icons.SYNC} Memuat RomFS...", foreground="#007ACC")
+        self.info_status_lbl.config(text=f"{Icons.SYNC} Loading RomFS...", foreground="#007ACC")
         self.update_idletasks()
 
         def _worker():
             t0 = time.time()
             ok, msg = self.trpfs_client.load_romfs(romfs_path)
             if not ok:
-                self.after(0, lambda: messagebox.showerror("Gagal Membaca RomFS", msg))
-                self.after(0, lambda: self.info_status_lbl.config(text=f"{Icons.DISCARD} Gagal memuat RomFS", foreground="red"))
+                try:
+                    self.after(0, lambda: messagebox.showerror("Failed to Load RomFS", msg))
+                    self.after(0, lambda: self.info_status_lbl.config(text=f"{Icons.DISCARD} Failed to load RomFS", foreground="red"))
+                except Exception:
+                    pass
                 return
 
             raw_files = self.trpfs_client.list_files("message/dat/English")
             log.info(f"Retrieved {len(raw_files)} files from RomFS in {(time.time()-t0)*1000:.1f}ms")
 
-            self.after(0, lambda: self._on_romfs_files_loaded(romfs_path, raw_files, t0))
+            try:
+                self.after(0, lambda: self._on_romfs_files_loaded(romfs_path, raw_files, t0))
+            except Exception:
+                pass
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -662,7 +723,7 @@ class ClassicDATStudioApp(tk.Tk):
         self.populate_file_tree()
 
         self.info_status_lbl.config(
-            text=f"{Icons.ROMFS} RomFS aktif ({len(self.file_items)} file .dat, {dt:.0f}ms)", 
+            text=f"{Icons.ROMFS} RomFS active ({len(self.file_items)} .dat files, {dt:.0f}ms)", 
             foreground="#2E7D32"
         )
         log.info(f"RomFS populated with {len(self.file_items)} files in {dt:.1f}ms")
@@ -671,7 +732,7 @@ class ClassicDATStudioApp(tk.Tk):
             self.load_file(0)
 
     def open_folder(self):
-        folder_path = filedialog.askdirectory(title="Pilih Folder Game (.dat atau Asset)")
+        folder_path = filedialog.askdirectory(title="Select Game Folder (.dat or Assets)")
         if folder_path:
             self.load_directory(folder_path)
 
@@ -730,7 +791,7 @@ class ClassicDATStudioApp(tk.Tk):
                         })
         except Exception as e:
             log.error(f"Error scanning folder {folder_path}: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Gagal membaca folder:\n{e}")
+            messagebox.showerror("Error", f"Failed to read folder:\n{e}")
             return
 
         elapsed = time.time() - t0
@@ -775,7 +836,7 @@ class ClassicDATStudioApp(tk.Tk):
 
         query = self.fe_search_var.get().lower().strip()
         filter_mode = self.fe_filter_var.get()
-        asset_cat = self.asset_filter_var.get() if hasattr(self, 'asset_filter_var') else "Semua Kategori"
+        asset_cat = self.asset_filter_var.get() if hasattr(self, 'asset_filter_var') else "All Files"
 
         # Separate items into matching groups
         folder_groups: Dict[str, List[int]] = {}
@@ -789,9 +850,9 @@ class ClassicDATStudioApp(tk.Tk):
             # Filtering
             if query and query not in item["filename"].lower() and query not in rel.lower():
                 continue
-            if "Belum" in filter_mode and stat != "untranslated":
+            if ("Untranslated" in filter_mode or "Belum" in filter_mode) and stat != "untranslated":
                 continue
-            if "Sudah" in filter_mode and stat != "completed":
+            if ("Completed" in filter_mode or "Sudah" in filter_mode) and stat != "completed":
                 continue
             if not AssetClassifier.matches_category_filter(item["filename"], asset_cat):
                 continue
@@ -897,8 +958,8 @@ class ClassicDATStudioApp(tk.Tk):
 
         filter_mode = self.fe_filter_var.get()
         # If active filter would hide this item, refresh the whole tree (with open_states preserved)
-        if ("Belum" in filter_mode and stat != "untranslated") or \
-           ("Sudah" in filter_mode and stat != "completed"):
+        if (("Untranslated" in filter_mode or "Belum" in filter_mode) and stat != "untranslated") or \
+           (("Completed" in filter_mode or "Sudah" in filter_mode) and stat != "completed"):
             self.populate_file_tree()
             return
 
@@ -923,7 +984,7 @@ class ClassicDATStudioApp(tk.Tk):
         """Update the status checkbox display."""
         is_done = (status == "completed")
         self.status_done_var.set(is_done)
-        unsaved_tag = " [Belum Disimpan]" if unsaved else ""
+        unsaved_tag = " [Unsaved]" if unsaved else ""
         if hasattr(self, 'status_chk'):
             icon, label_text, _ = StatusTracker.get_display_info(status)
             self.status_chk.config(text=f"{icon} {label_text}{unsaved_tag}")
@@ -1047,7 +1108,7 @@ class ClassicDATStudioApp(tk.Tk):
             self.save_btn.config(state=tk.DISABLED)
             self.export_btn.config(state=tk.DISABLED)
             self.import_btn.config(state=tk.DISABLED)
-            self.cur_file_lbl.config(text=f"Gambar: {item['rel_path']}")
+            self.cur_file_lbl.config(text=f"Image: {item['rel_path']}")
             self.update_status_selector(item["status"], is_manual=item.get("is_manual", False))
             self._sync_tree_selection(index)
             log.debug(f"Texture {item['filename']} loaded in {(time.time()-t0)*1000:.1f}ms")
@@ -1065,9 +1126,9 @@ class ClassicDATStudioApp(tk.Tk):
             self.save_btn.config(state=tk.DISABLED)
             self.export_btn.config(state=tk.DISABLED)
             self.import_btn.config(state=tk.DISABLED)
-            self.cur_file_lbl.config(text=f"Berkas Biner: {item['rel_path']}")
+            self.cur_file_lbl.config(text=f"Binary File: {item['rel_path']}")
             self.info_status_lbl.config(
-                text=f"Format berkas {atype.value} belum didukung untuk diedit sebagai teks dialog.", 
+                text=f"File format {atype.value} is not supported for editing as dialogue text.", 
                 foreground="#721C24"
             )
             self._sync_tree_selection(index)
@@ -1084,7 +1145,7 @@ class ClassicDATStudioApp(tk.Tk):
             self.ai_btn.config(state=tk.DISABLED, text=f"{Icons.SYNC} Translating...")
             task_info = self.active_ai_tasks[item["filename"]]
             self.info_status_lbl.config(
-                text=task_info.get("progress_text", "Menerjemahkan dengan AI..."), 
+                text=task_info.get("progress_text", "Translating with AI..."), 
                 foreground="#007ACC"
             )
         else:
@@ -1106,7 +1167,7 @@ class ClassicDATStudioApp(tk.Tk):
                     vtarget = item.get("romfs_path", item["rel_path"])
                     raw_bytes = self.trpfs_client.extract_file_bytes(vtarget)
                     if raw_bytes is None:
-                        raise ValueError(f"Gagal mengekstrak berkas virtual dari RomFS: {item['filename']}")
+                        raise ValueError(f"Failed to extract virtual file from RomFS: {item['filename']}")
                     self.current_orig_lines = self.codec.decode_bytes(raw_bytes)
                 else:
                     self.current_orig_lines = self.codec.read_file(item["dat_path"])
@@ -1131,9 +1192,9 @@ class ClassicDATStudioApp(tk.Tk):
         if self.pending_ai_diffs:
             meta = getattr(self, "file_pending_ai_meta", {}).get(target_fname, {})
             tm_hits = meta.get("tm_hits", 0)
-            tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
+            tm_info = f" ({tm_hits} lines via TM)" if tm_hits else ""
             self.info_status_lbl.config(
-                text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{tm_info} (klik {Icons.ACCEPT} per baris atau Accept All)", 
+                text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} AI translated line(s) ready for review{tm_info} (click {Icons.ACCEPT} per line or Accept All)", 
                 foreground="#155724"
             )
 
@@ -1297,7 +1358,7 @@ class ClassicDATStudioApp(tk.Tk):
     def clear_inspector(self):
         if not hasattr(self, 'inspector_orig_box'):
             return
-        self.inspector_title_lbl.config(text="Pilih baris pada tabel untuk melihat syntax highlight dialog.")
+        self.inspector_title_lbl.config(text="Select a table line to view dialogue syntax highlighting.")
         self.inspector_tag_lbl.config(text="")
         DialogueSyntaxHighlighter.set_text_with_highlight(self.inspector_orig_box, "", editable=False)
         DialogueSyntaxHighlighter.set_text_with_highlight(self.inspector_trans_box, "", editable=False)
@@ -1349,8 +1410,8 @@ class ClassicDATStudioApp(tk.Tk):
         DialogueSyntaxHighlighter.configure_tags(orig_box)
         DialogueSyntaxHighlighter.set_text_with_highlight(orig_box, orig_text, editable=False)
 
-        # Translated Indonesian Box
-        ttk.Label(dialog, text="Terjemahan Bahasa Indonesia:", font=("Arial", 9, "bold")).pack(anchor=tk.W, padx=10, pady=(0, 2))
+        # Translated Target Language Box
+        ttk.Label(dialog, text="Translation:", font=("Arial", 9, "bold")).pack(anchor=tk.W, padx=10, pady=(0, 2))
         trans_box = ScrolledText(dialog, wrap=tk.WORD, height=6, font=("Consolas", 10), undo=True, maxundo=50, autoseparators=True)
         trans_box.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 4))
         DialogueSyntaxHighlighter.configure_tags(trans_box)
@@ -1365,7 +1426,7 @@ class ClassicDATStudioApp(tk.Tk):
             cur_trans = trans_box.get('1.0', 'end-1c')
             valid, err = TagGuard.validate_line(orig_text, cur_trans)
             if valid:
-                validation_lbl.config(text=f"{Icons.ACCEPT} Semua tag [VAR] & simbol escape cocok", foreground="#2E7D32")
+                validation_lbl.config(text=f"{Icons.ACCEPT} All [VAR] tags and escape symbols match", foreground="#2E7D32")
             else:
                 validation_lbl.config(text=f"{Icons.DISCARD} {err}", foreground="#C62828")
 
@@ -1452,7 +1513,7 @@ class ClassicDATStudioApp(tk.Tk):
         if not selected:
             return
         idx = int(self.table.item(selected[0], 'values')[0])
-        if messagebox.askyesno("Confirm", f"Hapus baris {idx}?"):
+        if messagebox.askyesno("Confirm", f"Delete line {idx}?"):
             self.push_undo_state()
             if idx in self.pending_ai_diffs:
                 del self.pending_ai_diffs[idx]
@@ -1497,7 +1558,7 @@ class ClassicDATStudioApp(tk.Tk):
             self.update_table_display()
             self.auto_save()
             self._update_undo_buttons()
-            self.info_status_lbl.config(text=f"{Icons.UNDO} Undo berhasil & tersimpan", foreground="#007ACC")
+            self.info_status_lbl.config(text=f"{Icons.UNDO} Undo applied & saved", foreground="#007ACC")
             log.info(f"Undo applied for {self.file_items[self.current_file_index]['filename']}")
 
     def redo(self, event=None):
@@ -1515,7 +1576,7 @@ class ClassicDATStudioApp(tk.Tk):
             self.update_table_display()
             self.auto_save()
             self._update_undo_buttons()
-            self.info_status_lbl.config(text=f"{Icons.REDO} Redo berhasil & tersimpan", foreground="#007ACC")
+            self.info_status_lbl.config(text=f"{Icons.REDO} Redo applied & saved", foreground="#007ACC")
             log.info(f"Redo applied for {self.file_items[self.current_file_index]['filename']}")
 
     def auto_save(self):
@@ -1533,9 +1594,9 @@ class ClassicDATStudioApp(tk.Tk):
         # If user manually clicks Save .dat while there are unaccepted AI translations, ask to accept all
         if self.pending_ai_diffs and not silent:
             res = messagebox.askyesno(
-                "Perubahan AI Belum Di-Accept",
-                f"Terdapat {len(self.pending_ai_diffs)} baris hasil AI Translate yang belum di-accept.\n\n"
-                "Apakah Anda ingin me-Accept All perubahan AI sebelum menyimpan file?"
+                "Unaccepted AI Changes",
+                f"There are {len(self.pending_ai_diffs)} pending AI translated line(s) awaiting review.\n\n"
+                "Do you want to Accept All AI changes before saving?"
             )
             if res:
                 self.accept_all_ai_diffs()
@@ -1585,20 +1646,20 @@ class ClassicDATStudioApp(tk.Tk):
             self.update_tree_item_display(self.current_file_index)
 
             now_str = time.strftime("%H:%M:%S")
-            self.info_status_lbl.config(text=f"{Icons.SAVE} Tersimpan otomatis ({now_str})", foreground="#2E7D32")
+            self.info_status_lbl.config(text=f"{Icons.SAVE} Auto-saved ({now_str})", foreground="#2E7D32")
             log.info(f"Successfully compiled and saved {item['filename']} to .dat and SQLite database (silent={silent}).")
 
             if not silent:
                 messagebox.showinfo(
                     "Success", 
-                    f"File '{item['filename']}' berhasil disimpan!\nStatus: {icon} {label_text}\nTersimpan aman di Database SQLite."
+                    f"File '{item['filename']}' saved successfully!\nStatus: {icon} {label_text}\nSaved to SQLite Database."
                 )
         except Exception as e:
             log.error(f"Failed to save {item['filename']}: {e}", exc_info=True)
             if not silent:
-                messagebox.showerror("Error", f"Gagal menyimpan file:\n{e}")
+                messagebox.showerror("Error", f"Failed to save file:\n{e}")
             else:
-                self.info_status_lbl.config(text=f"{Icons.DISCARD} Gagal auto-save: {e}", foreground="red")
+                self.info_status_lbl.config(text=f"{Icons.DISCARD} Auto-save failed: {e}", foreground="red")
 
     def export_txt(self):
         if self.current_file_index < 0:
@@ -1635,7 +1696,7 @@ class ClassicDATStudioApp(tk.Tk):
                 self.update_table_display()
                 self.auto_save()
                 log.info(f"Imported {len(imported)} lines from {file_path}")
-                messagebox.showinfo("Success", f"Berhasil mengimpor {len(imported)} baris dari file TXT & tersimpan otomatis!")
+                messagebox.showinfo("Success", f"Successfully imported {len(imported)} lines from TXT & auto-saved!")
 
     # ----------------- AI Translate & Review Staging -----------------
     def translate_with_ai(self):
@@ -1649,16 +1710,16 @@ class ClassicDATStudioApp(tk.Tk):
         # Guard against double-triggering the same file
         if target_filename in getattr(self, "active_ai_tasks", {}):
             messagebox.showinfo(
-                "AI Sedang Berjalan", 
-                f"File '{target_filename}' saat ini sudah sedang diterjemahkan oleh AI di latar belakang."
+                "AI Busy", 
+                f"File '{target_filename}' is already being translated by AI in the background."
             )
             return
 
         is_local = "localhost" in self.ai.endpoint or "127.0.0.1" in self.ai.endpoint
         if not is_local and not self.ai.api_key:
             messagebox.showwarning(
-                "API Key Belum Diisi", 
-                f"API Key belum diisi!\nSilakan klik tombol '{Icons.SETTINGS} AI Settings' di atas untuk mengatur API Key dan Endpoint."
+                "API Key Required", 
+                f"AI API Key has not been configured!\nPlease click '{Icons.SETTINGS} Settings' to configure your API Key and Endpoint."
             )
             return
 
@@ -1668,19 +1729,19 @@ class ClassicDATStudioApp(tk.Tk):
         tot_lines = len(target_orig_lines)
 
         if tot_lines == 0:
-            messagebox.showinfo("File Kosong", "Tidak ada baris teks yang perlu diterjemahkan pada file ini.")
+            messagebox.showinfo("Empty File", "No dialogue text lines to translate in this file.")
             return
 
         # Register active task
         self.active_ai_tasks[target_filename] = {
             "rel_path": target_rel_path,
-            "progress_text": f"Menghubungi AI ({self.ai.model})...",
+            "progress_text": f"Connecting to AI ({self.ai.model})...",
             "lines_count": tot_lines
         }
         self.update_tree_item_display(target_file_index)
 
         self.ai_btn.config(state=tk.DISABLED, text=f"{Icons.SYNC} Translating...")
-        self.info_status_lbl.config(text=f"Menghubungi AI ({self.ai.model})...", foreground="#007ACC")
+        self.info_status_lbl.config(text=f"Connecting to AI ({self.ai.model})...", foreground="#007ACC")
         log.info(f"Starting isolated AI translation for {target_filename} ({tot_lines} lines) via {self.ai.provider} ({self.ai.model})...")
 
         def worker():
@@ -1730,7 +1791,7 @@ class ClassicDATStudioApp(tk.Tk):
                             en = t.get("term_en")
                             id_val = t.get("term_id")
                             cat = t.get("category", "game_term")
-                            notes = t.get("notes", "Otomatis dipelajari AI saat menerjemahkan")
+                            notes = t.get("notes", "Learned automatically by AI during translation")
                             if en and id_val:
                                 try:
                                     self.db.add_glossary_term(en, id_val, cat, notes)
@@ -1739,11 +1800,11 @@ class ClassicDATStudioApp(tk.Tk):
                                 except Exception:
                                     pass
                         if new_terms_recorded:
-                            log.info(f"Auto-Glossary: AI menemukan dan mencatat {len(new_terms_recorded)} istilah baru: {', '.join(new_terms_recorded[-5:])}")
+                            log.info(f"Auto-Glossary: AI discovered and recorded {len(new_terms_recorded)} new terms: {', '.join(new_terms_recorded[-5:])}")
 
                     def on_progress(cur: int, tot: int):
                         total_progress = tm_hits + cur
-                        prog_text = f"Menerjemahkan dengan AI ({self.ai.model}): {total_progress}/{tot_lines} baris... (TM: {tm_hits})"
+                        prog_text = f"Translating with AI ({self.ai.model}): {total_progress}/{tot_lines} lines... (TM: {tm_hits})"
                         if target_filename in self.active_ai_tasks:
                             self.active_ai_tasks[target_filename]["progress_text"] = prog_text
                         def update_ui():
@@ -1811,16 +1872,16 @@ class ClassicDATStudioApp(tk.Tk):
                         if is_user_still_on_file:
                             self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
                             self.info_status_lbl.config(
-                                text="AI/TM selesai: Semua baris sudah sesuai, tidak ada perubahan baru.", 
+                                text="AI/TM completed: All lines match, no new changes.", 
                                 foreground="#007ACC"
                             )
                             messagebox.showinfo(
-                                "AI/TM Translate Selesai", 
-                                "Tidak ada baris yang berubah. Hasil terjemahan sama persis dengan terjemahan saat ini."
+                                "AI Translation Completed", 
+                                "No lines changed. Translation result is identical to current text."
                             )
                         else:
                             self.info_status_lbl.config(
-                                text=f"AI/TM '{target_filename}' selesai: Tidak ada perubahan baru.", 
+                                text=f"AI/TM '{target_filename}' completed: No new changes.", 
                                 foreground="#007ACC"
                             )
                         if matched_idx >= 0:
@@ -1835,8 +1896,8 @@ class ClassicDATStudioApp(tk.Tk):
                         "result": result
                     }
 
-                    extra_terms = f" ({len(new_terms_recorded)} kosakata baru dicatat ke Kamus)" if new_terms_recorded else ""
-                    tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
+                    extra_terms = f" ({len(new_terms_recorded)} new terms added to Glossary)" if new_terms_recorded else ""
+                    tm_info = f" ({tm_hits} lines via TM)" if tm_hits else ""
 
                     if is_user_still_on_file:
                         # SCENARIO A: User is still on the same file -> Show green diffs & review bar immediately
@@ -1845,14 +1906,14 @@ class ClassicDATStudioApp(tk.Tk):
                         self.update_table_display()
                         self.update_review_bar()
                         self.info_status_lbl.config(
-                            text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{tm_info}{extra_terms} (klik {Icons.ACCEPT} per baris atau Accept All)", 
+                            text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} AI translated lines ready for review{tm_info}{extra_terms} (click {Icons.ACCEPT} per line or Accept All)", 
                             foreground="#155724"
                         )
                     else:
                         # SCENARIO B: User navigated away -> Staged in cache, show sparkle in treeview!
                         log.info(f"AI translation for '{target_filename}' staged with {len(diffs_found)} diffs waiting for user review.")
                         self.info_status_lbl.config(
-                            text=f"{Icons.AI_SPARKLE} AI Translate '{target_filename}' selesai! {len(diffs_found)} baris siap di-review saat file dibuka{tm_info}{extra_terms}.",
+                            text=f"{Icons.AI_SPARKLE} AI translation of '{target_filename}' complete! {len(diffs_found)} lines ready for review when file is opened{tm_info}{extra_terms}.",
                             foreground="#155724"
                         )
 
@@ -1881,11 +1942,11 @@ class ClassicDATStudioApp(tk.Tk):
                     )
                     if is_user_still_on_file:
                         self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
-                        self.info_status_lbl.config(text=f"{Icons.DISCARD} Gagal menerjemahkan", foreground="red")
+                        self.info_status_lbl.config(text=f"{Icons.DISCARD} Translation failed", foreground="red")
                         messagebox.showerror("AI Translation Error", msg)
                     else:
                         self.info_status_lbl.config(
-                            text=f"{Icons.DISCARD} Gagal menerjemahkan '{target_filename}' di latar belakang: {msg[:60]}", 
+                            text=f"{Icons.DISCARD} Background translation failed for '{target_filename}': {msg[:60]}", 
                             foreground="red"
                         )
 
@@ -1919,18 +1980,18 @@ class ClassicDATStudioApp(tk.Tk):
             self.update_table_display()
             self.auto_save()
             self.info_status_lbl.config(
-                text=f"{Icons.REPAIR} Auto-Fix: Berhasil memperbaiki tag pada {fixed_count} baris dialog!",
+                text=f"{Icons.REPAIR} Auto-Fix: Fixed tags on {fixed_count} dialogue line(s)!",
                 foreground="#2E7D32"
             )
             messagebox.showinfo(
-                "Auto-Fix Tags Selesai",
-                f"Berhasil memperbaiki format tag dan kontrol pada {fixed_count} baris dialog!\n"
-                "Perubahan telah disimpan aman ke database."
+                "Auto-Fix Tags Complete",
+                f"Successfully fixed tags and control codes on {fixed_count} dialogue line(s)!\n"
+                "Changes saved to database."
             )
         else:
             messagebox.showinfo(
-                "Semua Tag Sesuai",
-                "Semua tag dialog dan kontrol (\\[VAR\\], \\[WAIT\\], \\n, \\r, \\c) sudah 100% sesuai dengan teks aslinya."
+                "All Tags Valid",
+                "All dialogue tags and control codes ([VAR], [WAIT], \\n, \\r, \\c) match the original text 100%!"
             )
 
 
@@ -1973,7 +2034,7 @@ class ClassicDATStudioApp(tk.Tk):
 
         self._update_table_row(line_idx)
         self.update_review_bar()
-        self.info_status_lbl.config(text=f"{Icons.DISCARD} Translasi baris {line_idx} dibatalkan.", foreground="#C62828")
+        self.info_status_lbl.config(text=f"{Icons.DISCARD} Translation for line {line_idx} discarded.", foreground="#C62828")
         log.info(f"Discarded AI translation for line {line_idx}")
 
     def accept_all_ai_diffs(self):
@@ -1997,7 +2058,7 @@ class ClassicDATStudioApp(tk.Tk):
         self.auto_save()
         self.update_tree_item_display(self.current_file_index)
         self.info_status_lbl.config(
-            text=f"{Icons.ACCEPT} {count} baris translasi AI diterima & tersimpan otomatis!", 
+            text=f"{Icons.ACCEPT} {count} AI translation line(s) accepted & saved!", 
             foreground="#2E7D32"
         )
         log.info(f"Accepted all {count} AI translations in {cur_fname}")
@@ -2017,7 +2078,7 @@ class ClassicDATStudioApp(tk.Tk):
         self.update_review_bar()
         self.update_tree_item_display(self.current_file_index)
         self.info_status_lbl.config(
-            text=f"{Icons.DISCARD} {count} baris translasi AI dibatalkan.", 
+            text=f"{Icons.DISCARD} {count} AI translation line(s) discarded.", 
             foreground="#C62828"
         )
         log.info(f"Discarded all {count} AI translations in {cur_fname}")
@@ -2026,7 +2087,7 @@ class ClassicDATStudioApp(tk.Tk):
         count = len(self.pending_ai_diffs)
         if count > 0:
             self.review_info_lbl.config(
-                text=f"{Icons.SEARCH} {count} baris hasil AI Translate menunggu review (git diff):"
+                text=f"{Icons.SEARCH} {count} AI translated line(s) awaiting review (git diff):"
             )
             self.review_accept_all_btn.config(text=f"{Icons.ACCEPT} Accept All ({count})")
             if not self.review_bar.winfo_manager():
@@ -2105,16 +2166,16 @@ class ClassicDATStudioApp(tk.Tk):
         self.table_context_menu.delete(0, tk.END)
         if line_idx in self.pending_ai_diffs:
             self.table_context_menu.add_command(
-                label=f"{Icons.ACCEPT} Accept Baris {line_idx}", 
+                label=f"{Icons.ACCEPT} Accept Line {line_idx}", 
                 command=lambda idx=line_idx: self.accept_single_ai_diff(idx)
             )
             self.table_context_menu.add_command(
-                label=f"{Icons.DISCARD} Discard Baris {line_idx}", 
+                label=f"{Icons.DISCARD} Discard Line {line_idx}", 
                 command=lambda idx=line_idx: self.discard_single_ai_diff(idx)
             )
             self.table_context_menu.add_separator()
             self.table_context_menu.add_command(
-                label=f"{Icons.ACCEPT} Accept All ({len(self.pending_ai_diffs)} baris)", 
+                label=f"{Icons.ACCEPT} Accept All ({len(self.pending_ai_diffs)} lines)", 
                 command=self.accept_all_ai_diffs
             )
             self.table_context_menu.add_command(
@@ -2124,7 +2185,7 @@ class ClassicDATStudioApp(tk.Tk):
             self.table_context_menu.add_separator()
 
         self.table_context_menu.add_command(
-            label=f"{Icons.EDIT} Edit Baris...", 
+            label=f"{Icons.EDIT} Edit Line...", 
             command=lambda: self.open_edit_dialog(
                 line_idx, 
                 vals[2], 
@@ -2149,14 +2210,14 @@ class ClassicDATStudioApp(tk.Tk):
         win.geometry("600x450")
         win.transient(self)
 
-        ttk.Label(win, text=f"{Icons.PACKAGE} Mod Terpasang di Eden Emulator", font=("Arial", 11, "bold")).pack(padx=10, pady=8, anchor=tk.W)
+        ttk.Label(win, text=f"{Icons.PACKAGE} Mods Installed in Eden Emulator", font=("Arial", 11, "bold")).pack(padx=10, pady=8, anchor=tk.W)
 
         tree = ttk.Treeview(win, columns=('status', 'name', 'type'), show='headings')
         tree.heading('status', text='Status')
         tree.column('status', width=70, anchor='center')
-        tree.heading('name', text='Nama Mod')
+        tree.heading('name', text='Mod Name')
         tree.column('name', width=380, anchor='w')
-        tree.heading('type', text='Tipe')
+        tree.heading('type', text='Type')
         tree.column('type', width=100, anchor='center')
         tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -2168,7 +2229,7 @@ class ClassicDATStudioApp(tk.Tk):
                 tree.delete(r)
             mods = EmuDetector.get_mods_for_game(title_id, load_p)
             for m in mods:
-                stat = f"{Icons.ACCEPT} Aktif" if m["is_enabled"] else f"{Icons.DISCARD} Mati"
+                stat = f"{Icons.ACCEPT} Enabled" if m["is_enabled"] else f"{Icons.DISCARD} Disabled"
                 tags = []
                 if m["has_romfs"]: tags.append("RomFS")
                 if m["has_exefs"]: tags.append("ExeFS")
@@ -2193,25 +2254,25 @@ class ClassicDATStudioApp(tk.Tk):
             refresh_table()
 
         ttk.Button(btn_bar, text="Toggle On/Off", command=toggle_sel).pack(side=tk.LEFT)
-        ttk.Button(btn_bar, text="Buka Folder Mod", command=lambda: os.startfile(os.path.join(load_p, title_id))).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_bar, text="Tutup", command=win.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btn_bar, text="Open Mod Folder", command=lambda: os.startfile(os.path.join(load_p, title_id))).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_bar, text="Close", command=win.destroy).pack(side=tk.RIGHT)
 
     # ----------------- Settings Modal -----------------
     def open_settings_modal(self):
         log.info("Opening AI & Path Settings modal...")
         modal = tk.Toplevel(self)
-        modal.title("Pengaturan AI & Polyglot Studio")
+        modal.title("AI & Polyglot Studio Settings")
         modal.geometry("640x700")
         modal.transient(self)
         modal.grab_set()
 
-        ttk.Label(modal, text=f"{Icons.SETTINGS} Pengaturan AI & Path", font=("Arial", 12, "bold")).pack(pady=10)
+        ttk.Label(modal, text=f"{Icons.SETTINGS} AI & Path Settings", font=("Arial", 12, "bold")).pack(pady=10)
 
         main_f = ttk.Frame(modal)
         main_f.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
 
         # Provider
-        ttk.Label(main_f, text="Provider AI:").grid(row=0, column=0, sticky=tk.W, pady=4)
+        ttk.Label(main_f, text="AI Provider:").grid(row=0, column=0, sticky=tk.W, pady=4)
         prov_map = {
             "OpenAI Compatible (OpenAI, DeepSeek, Ollama, OpenRouter, LM Studio)": "openai",
             "Anthropic (Claude)": "anthropic",
@@ -2224,7 +2285,7 @@ class ClassicDATStudioApp(tk.Tk):
         prov_combo.grid(row=0, column=1, sticky=tk.W, pady=4)
 
         # Endpoint
-        ttk.Label(main_f, text="URL Endpoint:").grid(row=1, column=0, sticky=tk.W, pady=4)
+        ttk.Label(main_f, text="Endpoint URL:").grid(row=1, column=0, sticky=tk.W, pady=4)
         endp_entry = ttk.Entry(main_f, width=58)
         endp_entry.insert(0, self.settings.get("ai_endpoint", "https://api.openai.com/v1"))
         endp_entry.grid(row=1, column=1, sticky=tk.W, pady=4)
@@ -2259,7 +2320,7 @@ class ClassicDATStudioApp(tk.Tk):
 
         reset_btn = ttk.Button(
             main_f, 
-            text="Reset ke Prompt Default", 
+            text="Reset to Default Prompt", 
             command=lambda: (prompt_box.delete('1.0', tk.END), prompt_box.insert('1.0', UniversalAIClient.DEFAULT_PROMPT))
         )
         reset_btn.grid(row=5, column=1, sticky=tk.W, pady=2)
@@ -2390,6 +2451,22 @@ class ClassicDATStudioApp(tk.Tk):
             self.current_search_index = (self.current_search_index + 1) % len(self.search_results)
             self.highlight_search_result()
             self.search_status.config(text=f"{self.current_search_index + 1}/{len(self.search_results)}")
+
+    def show_about_dialog(self):
+        messagebox.showinfo(
+            "About Polyglot Studio",
+            "Polyglot Studio (Switch Mod Studio)\n"
+            "Version 2.0.0\n\n"
+            "An advanced, AI-assisted localization & modding studio for Nintendo Switch RomFS assets.\n\n"
+            "Features:\n"
+            "• Direct TRPFS RomFS archive reading & writing\n"
+            "• Native FlatBuffers .dat dialogue parser & compiler\n"
+            "• Universal AI Translation (OpenAI, Gemini, Claude, Ollama, DeepSeek)\n"
+            "• Translation Memory (TM) & Terminology Glossary\n"
+            "• Multi-format Asset Viewer (Textures, Fonts, Audio)\n"
+            "• 1-Click LayeredFS Mod Deployer for Eden Emulator & Switch SD Card\n\n"
+            "Segoe Fluent UI & High Performance Architecture."
+        )
 
 # Alias
 PolyglotStudioApp = ClassicDATStudioApp

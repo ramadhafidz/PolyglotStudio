@@ -59,9 +59,9 @@ class StatusTracker:
         Only 2 statuses: 'Sudah' and 'Belum'.
         """
         if status == "completed":
-            return Icons.STATUS_DONE, "Sudah", "#2E7D32"
+            return Icons.STATUS_DONE, "Completed", "#2E7D32"
         else:
-            return Icons.STATUS_TODO, "Belum", "#757575"
+            return Icons.STATUS_TODO, "Untranslated", "#757575"
 
     @classmethod
     def load_cache(cls, cache_file: str) -> Dict[str, Any]:

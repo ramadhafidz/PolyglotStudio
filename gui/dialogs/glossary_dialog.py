@@ -37,7 +37,7 @@ class GlossaryDialog(tk.Toplevel):
         self.all_terms: List[Dict[str, Any]] = []
 
         # Konfigurasi jendela
-        self.title("Kamus Istilah (Glossary)")
+        self.title("Glossary (Terminology)")
         self.geometry("700x500")
         self.minsize(650, 450)
         self.transient(parent)
@@ -92,24 +92,24 @@ class GlossaryDialog(tk.Toplevel):
         # Judul Dialog
         title_lbl = ttk.Label(
             header_frame,
-            text=f"{Icons.GLOSSARY} Kamus Istilah (Glossary)",
+            text=f"{Icons.GLOSSARY} Glossary (Terminology)",
             font=("Segoe UI", 11, "bold")
         )
         title_lbl.pack(side=tk.LEFT)
 
         # Filter Kategori Dropdown di Header
-        self.filter_cat_var = tk.StringVar(value="Semua Kategori")
+        self.filter_cat_var = tk.StringVar(value="All Categories")
         cat_filter_combo = ttk.Combobox(
             header_frame,
             textvariable=self.filter_cat_var,
-            values=["Semua Kategori", "general", "pokemon", "game_term", "location", "character"],
+            values=["All Categories", "general", "pokemon", "game_term", "location", "character"],
             state="readonly",
             width=14
         )
         cat_filter_combo.pack(side=tk.RIGHT, padx=(4, 0))
         cat_filter_combo.bind("<<ComboboxSelected>>", self.apply_filter)
 
-        ttk.Label(header_frame, text="Kategori:").pack(side=tk.RIGHT, padx=(8, 2))
+        ttk.Label(header_frame, text="Category:").pack(side=tk.RIGHT, padx=(8, 2))
 
         # Kotak Pencarian Teks
         self.search_var = tk.StringVar()
@@ -120,7 +120,7 @@ class GlossaryDialog(tk.Toplevel):
 
         search_icon_lbl = ttk.Label(
             header_frame,
-            text=f"{Icons.SEARCH} Cari:",
+            text=f"{Icons.SEARCH} Search:",
             font=("Segoe Fluent Icons", 11)
         )
         search_icon_lbl.pack(side=tk.RIGHT, padx=(2, 2))
@@ -153,7 +153,7 @@ class GlossaryDialog(tk.Toplevel):
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
         # ----------------- Form Input Data -----------------
-        form_frame = ttk.LabelFrame(main_frame, text=" Formulir Istilah ", padding=(10, 8))
+        form_frame = ttk.LabelFrame(main_frame, text=" Term Details ", padding=(10, 8))
         form_frame.pack(fill=tk.X, pady=(0, 8))
 
         form_frame.columnconfigure(1, weight=1)
@@ -183,55 +183,55 @@ class GlossaryDialog(tk.Toplevel):
         self.notes_entry = ttk.Entry(form_frame)
         self.notes_entry.grid(row=1, column=3, sticky=tk.EW, pady=3)
 
-        # ----------------- Tombol Aksi -----------------
+        # ----------------- Action Buttons -----------------
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=(0, 8))
 
-        # Tombol Tambah
+        # Add Button
         self.add_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.ACCEPT} Tambah",
+            text=f"{Icons.ACCEPT} Add",
             command=self.add_term
         )
         self.add_btn.pack(side=tk.LEFT, padx=(0, 4))
 
-        # Tombol Ubah
+        # Update Button
         self.update_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.EDIT} Ubah",
+            text=f"{Icons.EDIT} Update",
             command=self.update_term
         )
         self.update_btn.pack(side=tk.LEFT, padx=4)
 
-        # Tombol Hapus
+        # Delete Button
         self.delete_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.DISCARD} Hapus",
+            text=f"{Icons.DISCARD} Delete",
             command=self.delete_term
         )
         self.delete_btn.pack(side=tk.LEFT, padx=4)
 
-        # Tombol Bersihkan Pilihan
+        # Clear Form Button
         self.clear_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.REFRESH} Bersihkan",
+            text=f"{Icons.REFRESH} Clear",
             command=self.clear_form
         )
         self.clear_btn.pack(side=tk.LEFT, padx=4)
 
-        # Tombol Pindai Kosakata dengan AI (jika AI dan dialog saat ini tersedia)
+        # Scan AI Dialogue Button
         if self.ai and self.current_lines:
             self.scan_btn = ttk.Button(
                 btn_frame,
-                text=f"{Icons.AI_SPARKLE} Pindai Dialog AI",
+                text=f"{Icons.AI_SPARKLE} Scan AI Dialogue",
                 command=self.scan_with_ai
             )
             self.scan_btn.pack(side=tk.LEFT, padx=8)
 
-        # Tombol Tutup
+        # Close Button
         self.close_btn = ttk.Button(
             btn_frame,
-            text="Tutup",
+            text="Close",
             command=self.destroy
         )
         self.close_btn.pack(side=tk.RIGHT)
@@ -242,24 +242,23 @@ class GlossaryDialog(tk.Toplevel):
 
         self.status_lbl = ttk.Label(
             status_frame,
-            text="Total: 0 istilah terdaftar",
+            text="Total: 0 registered terms",
             font=("Segoe UI", 9)
         )
         self.status_lbl.pack(side=tk.LEFT)
 
     def refresh_table(self):
-        """Memuat ulang data glosarium dari database ke tabel Treeview."""
+        """Reload glossary terms from database into Treeview table."""
         try:
             self.all_terms = self.db.get_glossary()
         except Exception as e:
-            log.error(f"Gagal mengambil glosarium dari database: {e}", exc_info=True)
+            log.error(f"Failed to fetch glossary from database: {e}", exc_info=True)
             self.all_terms = []
 
         self.apply_filter()
 
     def apply_filter(self, event=None):
-        """Menyaring tampilan istilah di tabel berdasarkan pencarian teks dan kategori."""
-        # Bersihkan baris tabel yang ada
+        """Filter terms in table based on search query and category."""
         for item in self.tree.get_children():
             self.tree.delete(item)
 
@@ -269,7 +268,7 @@ class GlossaryDialog(tk.Toplevel):
         filtered: List[Dict[str, Any]] = []
         for term in self.all_terms:
             cat = str(term.get("category", "")).strip()
-            if selected_cat and selected_cat != "Semua Kategori" and cat != selected_cat:
+            if selected_cat and selected_cat not in ("All Categories", "Semua Kategori") and cat != selected_cat:
                 continue
 
             if query:
@@ -281,7 +280,7 @@ class GlossaryDialog(tk.Toplevel):
 
             filtered.append(term)
 
-        # Masukkan baris yang lolos filter
+        # Insert filtered items
         for idx, term in enumerate(filtered, start=1):
             term_pk = term.get("id", idx)
             term_en = term.get("term_en", "")
@@ -296,15 +295,15 @@ class GlossaryDialog(tk.Toplevel):
                 values=(idx, term_en, term_id, cat, notes)
             )
 
-        # Perbarui status jumlah istilah
+        # Update count status
         total = len(self.all_terms)
-        if query or (selected_cat and selected_cat != "Semua Kategori"):
+        if query or (selected_cat and selected_cat not in ("All Categories", "Semua Kategori")):
             self.status_lbl.config(
-                text=f"Menampilkan {len(filtered)} dari {total} istilah terdaftar"
+                text=f"Showing {len(filtered)} of {total} registered terms"
             )
         else:
             self.status_lbl.config(
-                text=f"Total: {total} istilah terdaftar"
+                text=f"Total: {total} registered terms"
             )
 
     def on_select(self, event=None):
@@ -341,7 +340,7 @@ class GlossaryDialog(tk.Toplevel):
         self.notes_entry.insert(0, notes)
 
     def add_term(self):
-        """Membaca formulir input dan menambahkan istilah baru ke glosarium."""
+        """Read input form and insert a new term into glossary."""
         term_en = self.en_entry.get().strip()
         term_id = self.id_entry.get().strip()
         category = self.cat_combo.get().strip() or "general"
@@ -349,8 +348,8 @@ class GlossaryDialog(tk.Toplevel):
 
         if not term_en:
             messagebox.showwarning(
-                "Peringatan",
-                "Istilah Bahasa Inggris (English Term) tidak boleh kosong!",
+                "Warning",
+                "English Term cannot be empty!",
                 parent=self
             )
             self.en_entry.focus_set()
@@ -358,8 +357,8 @@ class GlossaryDialog(tk.Toplevel):
 
         if not term_id:
             messagebox.showwarning(
-                "Peringatan",
-                "Istilah Bahasa Indonesia (Indonesian Term) tidak boleh kosong!",
+                "Warning",
+                "Indonesian Term cannot be empty!",
                 parent=self
             )
             self.id_entry.focus_set()
@@ -367,24 +366,24 @@ class GlossaryDialog(tk.Toplevel):
 
         try:
             self.db.add_glossary_term(term_en, term_id, category, notes)
-            log.info(f"Glosarium: Istilah baru '{term_en}' -> '{term_id}' berhasil ditambahkan")
+            log.info(f"Glossary: New term '{term_en}' -> '{term_id}' successfully added")
             self.clear_form()
             self.refresh_table()
-            self.status_lbl.config(text=f"Berhasil menambahkan istilah: '{term_en}'")
+            self.status_lbl.config(text=f"Successfully added term: '{term_en}'")
         except Exception as e:
-            log.error(f"Gagal menambahkan istilah glosarium: {e}", exc_info=True)
+            log.error(f"Failed to add glossary term: {e}", exc_info=True)
             messagebox.showerror(
-                "Kesalahan",
-                f"Gagal menambahkan istilah ke database:\n{e}",
+                "Error",
+                f"Failed to add term to database:\n{e}",
                 parent=self
             )
 
     def update_term(self):
-        """Membaca formulir input dan memperbarui istilah glosarium yang dipilih."""
+        """Read input form and update the selected glossary term."""
         if self.selected_id is None:
             messagebox.showwarning(
-                "Peringatan",
-                "Silakan pilih istilah yang ingin diubah terlebih dahulu dari tabel!",
+                "Warning",
+                "Please select a term to update from the table first!",
                 parent=self
             )
             return
@@ -396,8 +395,8 @@ class GlossaryDialog(tk.Toplevel):
 
         if not term_en:
             messagebox.showwarning(
-                "Peringatan",
-                "Istilah Bahasa Inggris (English Term) tidak boleh kosong!",
+                "Warning",
+                "English Term cannot be empty!",
                 parent=self
             )
             self.en_entry.focus_set()
@@ -405,8 +404,8 @@ class GlossaryDialog(tk.Toplevel):
 
         if not term_id:
             messagebox.showwarning(
-                "Peringatan",
-                "Istilah Bahasa Indonesia (Indonesian Term) tidak boleh kosong!",
+                "Warning",
+                "Indonesian Term cannot be empty!",
                 parent=self
             )
             self.id_entry.focus_set()
@@ -414,53 +413,53 @@ class GlossaryDialog(tk.Toplevel):
 
         try:
             self.db.update_glossary_term(self.selected_id, term_en, term_id, category, notes)
-            log.info(f"Glosarium: Istilah ID {self.selected_id} ('{term_en}') berhasil diperbarui")
+            log.info(f"Glossary: Term ID {self.selected_id} ('{term_en}') updated successfully")
             self.clear_form()
             self.refresh_table()
-            self.status_lbl.config(text=f"Berhasil memperbarui istilah: '{term_en}'")
+            self.status_lbl.config(text=f"Successfully updated term: '{term_en}'")
         except Exception as e:
-            log.error(f"Gagal memperbarui istilah glosarium: {e}", exc_info=True)
+            log.error(f"Failed to update glossary term: {e}", exc_info=True)
             messagebox.showerror(
-                "Kesalahan",
-                f"Gagal memperbarui istilah di database:\n{e}",
+                "Error",
+                f"Failed to update term in database:\n{e}",
                 parent=self
             )
 
     def delete_term(self):
-        """Menghapus istilah glosarium yang sedang dipilih setelah konfirmasi."""
+        """Delete currently selected glossary term after user confirmation."""
         if self.selected_id is None:
             messagebox.showwarning(
-                "Peringatan",
-                "Silakan pilih istilah yang ingin dihapus terlebih dahulu dari tabel!",
+                "Warning",
+                "Please select a term to delete from the table first!",
                 parent=self
             )
             return
 
         term_en = self.en_entry.get().strip()
         confirm_text = (
-            f"Apakah Anda yakin ingin menghapus istilah '{term_en}' dari glosarium?"
-            if term_en else "Apakah Anda yakin ingin menghapus istilah terpilih dari glosarium?"
+            f"Are you sure you want to delete term '{term_en}' from the glossary?"
+            if term_en else "Are you sure you want to delete the selected term from the glossary?"
         )
 
-        if not messagebox.askyesno("Konfirmasi Hapus", confirm_text, parent=self):
+        if not messagebox.askyesno("Confirm Delete", confirm_text, parent=self):
             return
 
         try:
             self.db.delete_glossary_term(self.selected_id)
-            log.info(f"Glosarium: Istilah ID {self.selected_id} ('{term_en}') berhasil dihapus")
+            log.info(f"Glossary: Term ID {self.selected_id} ('{term_en}') deleted")
             self.clear_form()
             self.refresh_table()
-            self.status_lbl.config(text=f"Istilah '{term_en}' berhasil dihapus dari glosarium.")
+            self.status_lbl.config(text=f"Term '{term_en}' deleted from glossary.")
         except Exception as e:
-            log.error(f"Gagal menghapus istilah glosarium: {e}", exc_info=True)
+            log.error(f"Failed to delete glossary term: {e}", exc_info=True)
             messagebox.showerror(
-                "Kesalahan",
-                f"Gagal menghapus istilah dari database:\n{e}",
+                "Error",
+                f"Failed to delete term from database:\n{e}",
                 parent=self
             )
 
     def clear_form(self):
-        """Membersihkan formulir input dan melepaskan pilihan pada tabel."""
+        """Clear form inputs and deselect table row."""
         self.selected_id = None
         self.en_entry.delete(0, tk.END)
         self.id_entry.delete(0, tk.END)
@@ -474,14 +473,14 @@ class GlossaryDialog(tk.Toplevel):
         self.en_entry.focus_set()
 
     def scan_with_ai(self):
-        """Memindai dialog file saat ini untuk mengekstrak dan mencatat kosakata baru secara otomatis dengan AI."""
+        """Scan active dialogue lines to extract and register domain terminology with AI."""
         if not self.ai or not self.current_lines:
-            messagebox.showwarning("Peringatan", "Tidak ada baris dialog yang sedang dimuat untuk dipindai.", parent=self)
+            messagebox.showwarning("Warning", "No dialogue lines currently loaded to scan.", parent=self)
             return
 
         if hasattr(self, 'scan_btn'):
-            self.scan_btn.config(state=tk.DISABLED, text=f"{Icons.SYNC} Memindai...")
-        self.status_lbl.config(text="AI sedang menganalisis dialog untuk menemukan kosakata khas...")
+            self.scan_btn.config(state=tk.DISABLED, text=f"{Icons.SYNC} Scanning...")
+        self.status_lbl.config(text="AI is analyzing dialogue to extract domain terminology...")
 
         def _worker():
             try:
@@ -491,36 +490,36 @@ class GlossaryDialog(tk.Toplevel):
                     en = item.get("term_en")
                     id_val = item.get("term_id")
                     cat = item.get("category", "game_term")
-                    notes = item.get("notes", "Otomatis dipindai AI dari dialog")
+                    notes = item.get("notes", "Learned automatically by AI from dialogue")
                     if en and id_val:
                         self.db.add_glossary_term(en, id_val, cat, notes)
                         added_count += 1
 
                 def _finish():
                     if hasattr(self, 'scan_btn'):
-                        self.scan_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Pindai Dialog AI")
+                        self.scan_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Scan AI Dialogue")
                     self.refresh_table()
                     if added_count > 0:
                         messagebox.showinfo(
-                            "Pindai Selesai",
-                            f"AI berhasil menemukan dan menambahkan {added_count} kosakata baru ke Kamus Istilah!",
+                            "Scan Completed",
+                            f"AI successfully found and added {added_count} new terms to the Glossary!",
                             parent=self
                         )
                     else:
                         messagebox.showinfo(
-                            "Pindai Selesai",
-                            "AI tidak menemukan istilah khas baru yang belum terdaftar di kamus.",
+                            "Scan Completed",
+                            "AI did not find any new unique terms not already in the glossary.",
                             parent=self
                         )
                 self.after(0, _finish)
             except Exception as e:
                 err_msg = str(e)
-                log.error(f"Gagal memindai istilah dengan AI: {err_msg}", exc_info=True)
+                log.error(f"Failed to scan terms with AI: {err_msg}", exc_info=True)
                 def _err():
                     if hasattr(self, 'scan_btn'):
-                        self.scan_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Pindai Dialog AI")
+                        self.scan_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Scan AI Dialogue")
                     self.refresh_table()
-                    messagebox.showerror("Kesalahan Pindai AI", f"Gagal memindai istilah:\n{err_msg}", parent=self)
+                    messagebox.showerror("AI Scan Error", f"Failed to scan terms:\n{err_msg}", parent=self)
                 self.after(0, _err)
 
         import threading

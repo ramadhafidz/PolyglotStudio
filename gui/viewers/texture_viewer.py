@@ -60,7 +60,7 @@ class TextureViewer(ttk.Frame):
 
         self.meta_lbl = ttk.Label(
             info_frame, 
-            text="Pilih file gambar untuk melihat detail.", 
+            text="Select an image file to view details.", 
             foreground="#555555",
             font=("Segoe UI", 9)
         )
@@ -72,28 +72,28 @@ class TextureViewer(ttk.Frame):
 
         self.ext_edit_btn = ttk.Button(
             btn_frame, 
-            text=f"{Icons.EXT_EDIT} Buka di Editor", 
+            text=f"{Icons.EXT_EDIT} Open in Editor", 
             command=self.open_in_external_editor
         )
         self.ext_edit_btn.pack(side=tk.LEFT, padx=3)
 
         self.replace_btn = ttk.Button(
             btn_frame, 
-            text=f"{Icons.IMPORT} Ganti Gambar...", 
+            text=f"{Icons.IMPORT} Replace Image...", 
             command=self.replace_image
         )
         self.replace_btn.pack(side=tk.LEFT, padx=3)
 
         self.export_btn = ttk.Button(
             btn_frame, 
-            text=f"{Icons.EXPORT} Ekspor...", 
+            text=f"{Icons.EXPORT} Export...", 
             command=self.export_image
         )
         self.export_btn.pack(side=tk.LEFT, padx=3)
 
         self.revert_btn = ttk.Button(
             btn_frame, 
-            text=f"{Icons.UNDO} Reset Asli", 
+            text=f"{Icons.UNDO} Reset Original", 
             command=self.revert_to_original
         )
         self.revert_btn.pack(side=tk.LEFT, padx=3)
@@ -105,7 +105,7 @@ class TextureViewer(ttk.Frame):
         # Left Pane: Original Texture
         self.left_frame = ttk.LabelFrame(
             self.paned, 
-            text=" Original Game Graphic (Asli / English) ", 
+            text=" Original Game Graphic (English) ", 
             padding=4
         )
         self.paned.add(self.left_frame, weight=1)
@@ -116,7 +116,7 @@ class TextureViewer(ttk.Frame):
         # Right Pane: Modified / Translated Texture
         self.right_frame = ttk.LabelFrame(
             self.paned, 
-            text=" Modded / Translated Graphic (Bahasa Indonesia) ", 
+            text=" Modded / Translated Graphic ", 
             padding=4
         )
         self.paned.add(self.right_frame, weight=1)
@@ -141,7 +141,7 @@ class TextureViewer(ttk.Frame):
 
         self.status_hint_lbl = ttk.Label(
             bottom, 
-            text="Tip: Format PNG, DDS, dan TGA didukung.", 
+            text="Tip: PNG, DDS, and TGA formats are supported.", 
             foreground="#666666",
             font=("Segoe UI", 9)
         )
@@ -185,9 +185,9 @@ class TextureViewer(ttk.Frame):
                     log.warning(f"Failed to load translated image via PIL: {e}")
 
         # Update metadata header
-        trans_status_str = f"{Icons.STATUS_DONE} Sudah Dimodifikasi" if has_trans else f"{Icons.STATUS_TODO} Belum Dimodifikasi"
+        trans_status_str = f"{Icons.STATUS_DONE} Modified" if has_trans else f"{Icons.STATUS_TODO} Unmodified"
         self.meta_lbl.config(
-            text=f"Dimensi: {orig_dims or 'Unknown'} | Ukuran: {orig_size_str} | Status: {trans_status_str}"
+            text=f"Dimensions: {orig_dims or 'Unknown'} | Size: {orig_size_str} | Status: {trans_status_str}"
         )
 
         self._render_previews()
@@ -213,10 +213,10 @@ class TextureViewer(ttk.Frame):
         if img_obj is None:
             # Display helpful placeholder
             msg = (
-                f"{Icons.IMAGE}\n\nBelum ada gambar hasil terjemahan/modifikasi.\n"
-                "Klik 'Ganti Gambar' atau 'Buka di Editor' untuk memodifikasi."
+                f"{Icons.IMAGE}\n\nNo modded/translated image yet.\n"
+                "Click 'Replace Image...' or 'Open in Editor' to modify."
                 if is_trans else
-                "Gambar asli tidak dapat ditampilkan."
+                "Original image cannot be displayed."
             )
             canvas.create_text(
                 c_w // 2, c_h // 2, 
@@ -230,7 +230,7 @@ class TextureViewer(ttk.Frame):
         if not HAS_PIL:
             canvas.create_text(
                 c_w // 2, c_h // 2, 
-                text="Pillow (PIL) diperlukan untuk rendering texture penuh.", 
+                text="Pillow (PIL) is required for complete texture rendering.", 
                 fill="#FFAA00", 
                 font=("Segoe UI", 10)
             )
@@ -284,12 +284,12 @@ class TextureViewer(ttk.Frame):
                 log.info(f"Opening image in external editor: {target_path}")
                 os.startfile(target_path)
             except Exception as e:
-                messagebox.showerror("Error", f"Gagal membuka editor gambar:\n{e}")
+                messagebox.showerror("Error", f"Failed to open image editor:\n{e}")
 
     def replace_image(self):
         """Allows user to pick a new image from disk to replace this texture."""
         if not self.current_orig_path or not self.current_trans_path:
-            messagebox.showwarning("Peringatan", "Tidak ada file texture yang dipilih.")
+            messagebox.showwarning("Warning", "No texture file selected.")
             return
 
         file_types = [
@@ -299,7 +299,7 @@ class TextureViewer(ttk.Frame):
             ("All Files", "*.*")
         ]
         picked = filedialog.askopenfilename(
-            title="Pilih Gambar Hasil Modifikasi / Terjemahan",
+            title="Select Modded / Translated Image",
             filetypes=file_types
         )
         if picked and os.path.exists(picked):
@@ -311,41 +311,41 @@ class TextureViewer(ttk.Frame):
                 # Reload preview
                 self.load_texture(self.current_orig_path, self.current_trans_path, self.current_item)
 
-                # Trigger status update to 'Sudah'
+                # Trigger status update to completed
                 if self.on_status_change:
                     self.on_status_change(True)
 
-                messagebox.showinfo("Sukses", "Gambar modifikasi berhasil dipasang!")
+                messagebox.showinfo("Success", "Modded image successfully installed!")
             except Exception as e:
                 log.error(f"Failed to replace image: {e}", exc_info=True)
-                messagebox.showerror("Error", f"Gagal mengganti gambar:\n{e}")
+                messagebox.showerror("Error", f"Failed to replace image:\n{e}")
 
     def export_image(self):
         """Exports either the modified or original image as a copy."""
         src_path = self.current_trans_path if (self.current_trans_path and os.path.exists(self.current_trans_path)) else self.current_orig_path
         if not src_path or not os.path.exists(src_path):
-            messagebox.showwarning("Peringatan", "Tidak ada gambar untuk diekspor.")
+            messagebox.showwarning("Warning", "No image to export.")
             return
 
         def_name = os.path.basename(src_path)
         dest = filedialog.asksaveasfilename(
-            title="Ekspor Salinan Gambar",
+            title="Export Image Copy",
             initialfile=def_name,
             filetypes=[("PNG Image", "*.png"), ("All Files", "*.*")]
         )
         if dest:
             try:
                 shutil.copy2(src_path, dest)
-                messagebox.showinfo("Sukses", f"Gambar berhasil diekspor ke:\n{dest}")
+                messagebox.showinfo("Success", f"Image exported successfully to:\n{dest}")
             except Exception as e:
-                messagebox.showerror("Error", f"Gagal mengekspor gambar:\n{e}")
+                messagebox.showerror("Error", f"Failed to export image:\n{e}")
 
     def revert_to_original(self):
         """Removes the modified texture so the original game texture is used."""
         if self.current_trans_path and os.path.exists(self.current_trans_path):
             confirm = messagebox.askyesno(
-                "Konfirmasi Reset",
-                "Apakah Anda yakin ingin menghapus gambar modifikasi ini dan kembali ke gambar asli game?"
+                "Confirm Reset",
+                "Are you sure you want to delete this modified texture and revert to the original game texture?"
             )
             if confirm:
                 try:
@@ -355,9 +355,9 @@ class TextureViewer(ttk.Frame):
                     if self.on_status_change:
                         self.on_status_change(False)
                 except Exception as e:
-                    messagebox.showerror("Error", f"Gagal mereset gambar:\n{e}")
+                    messagebox.showerror("Error", f"Failed to reset image:\n{e}")
         else:
-            messagebox.showinfo("Info", "File ini belum memiliki modifikasi.")
+            messagebox.showinfo("Info", "This file has not been modified yet.")
 
     # ----------------- Zoom Controls -----------------
     def zoom_in(self):

@@ -89,8 +89,8 @@ class LayeredFSDeployDialog(tk.Toplevel):
 
         desc_lbl = ttk.Label(
             header,
-            text="Hanya mengompilasi file yang benar-benar memiliki perubahan (diffs > 0 untuk teks/dialog), "
-                 "menghasilkan struktur folder LayeredFS romfs/... yang bersih, kompatibel, dan siap pakai.",
+            text="Only compiles files that actually contain modifications (diffs > 0 for dialogue text), "
+                 "producing a clean, compatible, ready-to-use LayeredFS romfs/... folder structure.",
             font=("Arial", 9),
             foreground="#555555",
             wraplength=740
@@ -98,15 +98,15 @@ class LayeredFSDeployDialog(tk.Toplevel):
         desc_lbl.pack(anchor="w", pady=(2, 0))
 
         # Files Summary & List Frame
-        list_frame = ttk.LabelFrame(self, text=f"Daftar File yang Dimodifikasi ({len(self.modified_items)} file)", padding=8)
+        list_frame = ttk.LabelFrame(self, text=f"Modified Files List ({len(self.modified_items)} files)", padding=8)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=14, pady=4)
 
         columns = ("filename", "type", "diffs", "romfs_path")
         self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=7)
-        self.tree.heading("filename", text="Nama File")
-        self.tree.heading("type", text="Tipe")
-        self.tree.heading("diffs", text="Perubahan")
-        self.tree.heading("romfs_path", text="Target Path LayeredFS (romfs/...)")
+        self.tree.heading("filename", text="File Name")
+        self.tree.heading("type", text="Type")
+        self.tree.heading("diffs", text="Changes")
+        self.tree.heading("romfs_path", text="LayeredFS Target Path (romfs/...)")
 
         self.tree.column("filename", width=180, minwidth=140)
         self.tree.column("type", width=70, anchor="center")
@@ -122,7 +122,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
         self._populate_tree()
 
         # Destination & Settings Options
-        dest_frame = ttk.LabelFrame(self, text="Target Deployment & Pengaturan", padding=10)
+        dest_frame = ttk.LabelFrame(self, text="Deployment Target & Options", padding=10)
         dest_frame.pack(fill=tk.X, padx=14, pady=6)
 
         self.target_mode_var = tk.StringVar(value="eden")
@@ -131,7 +131,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
         eden_load = self.app.settings.get("eden_load_path") or EmuDetector.get_eden_load_path()
         r1 = ttk.Radiobutton(
             dest_frame,
-            text=f"Eden Emulator Mod Folder ({eden_load or 'Belum diatur'})",
+            text=f"Eden Emulator Mod Folder ({eden_load or 'Not configured'})",
             variable=self.target_mode_var,
             value="eden"
         )
@@ -140,7 +140,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
         # Radio 2: Custom Directory / Atmosphere SD Card
         r2 = ttk.Radiobutton(
             dest_frame,
-            text="Folder Kustom / SD Card Switch (atmosphere/contents/...):",
+            text="Custom Directory / Switch SD Card (atmosphere/contents/...):",
             variable=self.target_mode_var,
             value="custom"
         )
@@ -152,14 +152,14 @@ class LayeredFSDeployDialog(tk.Toplevel):
 
         ttk.Button(
             dest_frame,
-            text=f"{Icons.FOLDER_OPEN} Cari...",
+            text=f"{Icons.FOLDER_OPEN} Browse...",
             command=self._browse_custom_path
         ).grid(row=1, column=2, padx=5, pady=2)
 
         # Radio 3: Export ZIP
         r3 = ttk.Radiobutton(
             dest_frame,
-            text="Export sebagai Paket ZIP (.zip) — Siap Ekstrak ke Root SD Card Atmosphere",
+            text="Export as ZIP Package (.zip) — Ready to extract to Atmosphere SD Card root",
             variable=self.target_mode_var,
             value="zip"
         )
@@ -169,7 +169,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
         self.clean_old_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             dest_frame,
-            text="Bersihkan file mod lama di tujuan sebelum compile (Clean Build)",
+            text="Clean previous mod files at target before compilation (Clean Build)",
             variable=self.clean_old_var
         ).grid(row=3, column=0, sticky="w", pady=(6, 2))
 
@@ -182,7 +182,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
 
         self.status_lbl = ttk.Label(
             prog_frame,
-            text=f"Siap mengompilasi {len(self.modified_items)} file modifikasi.",
+            text=f"Ready to compile {len(self.modified_items)} modified file(s).",
             font=("Arial", 9),
             foreground="#333333"
         )
@@ -194,14 +194,14 @@ class LayeredFSDeployDialog(tk.Toplevel):
 
         self.deploy_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.DEPLOY} Deploy Mod Sekarang",
+            text=f"{Icons.DEPLOY} Deploy Mod Now",
             command=self.run_deploy
         )
         self.deploy_btn.pack(side=tk.LEFT)
 
         self.open_folder_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.FOLDER_OPEN} Buka Folder Mod",
+            text=f"{Icons.FOLDER_OPEN} Open Mod Folder",
             command=self.open_mod_directory,
             state=tk.DISABLED
         )
@@ -209,14 +209,14 @@ class LayeredFSDeployDialog(tk.Toplevel):
 
         self.close_btn = ttk.Button(
             btn_frame,
-            text="Tutup",
+            text="Close",
             command=self.destroy
         )
         self.close_btn.pack(side=tk.RIGHT)
 
     def _populate_tree(self):
         for it in self.modified_items:
-            diffs_str = f"{it['diffs']} baris" if it["asset_type"] == "text" else "Modified"
+            diffs_str = f"{it['diffs']} lines" if it["asset_type"] == "text" else "Modified"
             self.tree.insert(
                 "",
                 "end",
@@ -229,7 +229,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
             )
 
     def _browse_custom_path(self):
-        folder = filedialog.askdirectory(title="Pilih Folder Output Mod")
+        folder = filedialog.askdirectory(title="Select Mod Output Folder")
         if folder:
             self.custom_path_var.set(folder)
             self.target_mode_var.set("custom")
@@ -237,9 +237,9 @@ class LayeredFSDeployDialog(tk.Toplevel):
     def run_deploy(self):
         if not self.modified_items:
             messagebox.showinfo(
-                "Tidak Ada Perubahan",
-                "Belum ada file yang diubah atau ditandai selesai. "
-                "Silakan terjemahkan atau modifikasi setidaknya 1 file sebelum men-deploy."
+                "No Changes Found",
+                "No files have been modified or marked completed yet. "
+                "Please translate or modify at least 1 file before deploying."
             )
             return
 
@@ -250,21 +250,21 @@ class LayeredFSDeployDialog(tk.Toplevel):
             load_path = self.app.settings.get("eden_load_path") or EmuDetector.get_eden_load_path()
             if not load_path:
                 messagebox.showerror(
-                    "Path Eden Tidak Ditemukan",
-                    "Path direktori 'eden_load_path' belum diisi!\n"
-                    "Silakan atur path folder load emulator Eden Anda di menu AI Settings atau file .env."
+                    "Eden Path Not Found",
+                    "The 'eden_load_path' has not been configured!\n"
+                    "Please configure your Eden emulator load path in Settings or the .env file."
                 )
                 return
             target_path = load_path
         elif mode == "custom":
             custom_dir = self.custom_path_var.get().strip()
             if not custom_dir:
-                messagebox.showwarning("Pilih Folder", "Silakan pilih folder tujuan terlebih dahulu.")
+                messagebox.showwarning("Select Folder", "Please select a destination folder first.")
                 return
             target_path = custom_dir
         else: # zip
             zip_out = filedialog.asksaveasfilename(
-                title="Simpan Paket Mod ZIP",
+                title="Save Mod ZIP Package",
                 defaultextension=".zip",
                 initialfile=f"{self.deployer.mod_name}.zip",
                 filetypes=[("ZIP Archive", "*.zip")]
@@ -276,7 +276,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
         self.deploy_btn.config(state=tk.DISABLED)
         self.open_folder_btn.config(state=tk.DISABLED)
         self.progress_bar.config(maximum=len(self.modified_items), value=0)
-        self.status_lbl.config(text="Memulai kompilasi dan pembuatan struktur LayeredFS...", foreground="#007ACC")
+        self.status_lbl.config(text="Starting compilation and building LayeredFS structure...", foreground="#007ACC")
 
         threading.Thread(target=self._worker, args=(mode, target_path, clean), daemon=True).start()
 
@@ -303,7 +303,7 @@ class LayeredFSDeployDialog(tk.Toplevel):
 
     def _update_progress(self, cur: int, tot: int, fname: str):
         self.progress_bar.config(value=cur)
-        self.status_lbl.config(text=f"Mengompilasi [{cur}/{tot}]: {fname}...", foreground="#007ACC")
+        self.status_lbl.config(text=f"Compiling [{cur}/{tot}]: {fname}...", foreground="#007ACC")
 
     def _on_finish(self, res: DeployResult):
         self.deploy_btn.config(state=tk.NORMAL)
@@ -311,22 +311,22 @@ class LayeredFSDeployDialog(tk.Toplevel):
             self.progress_bar.config(value=res.total_files)
             self.open_folder_btn.config(state=tk.NORMAL)
             self.status_lbl.config(
-                text=f"{Icons.ACCEPT} Selesai dalam {res.elapsed_ms:.0f}ms! "
-                     f"{res.text_count} file .dat dikompilasi ({res.total_bytes / 1024:.1f} KB).",
+                text=f"{Icons.ACCEPT} Completed in {res.elapsed_ms:.0f}ms! "
+                     f"{res.text_count} .dat files compiled ({res.total_bytes / 1024:.1f} KB).",
                 foreground="#2E7D32"
             )
             messagebox.showinfo(
-                "LayeredFS Deploy Berhasil!",
-                f"Mod berhasil dikompilasi dan di-deploy!\n\n"
-                f"• File .dat teks: {res.text_count}\n"
-                f"• File aset grafis: {res.asset_count}\n"
-                f"• Total ukuran: {res.total_bytes / 1024:.1f} KB\n"
-                f"• Waktu proses: {res.elapsed_ms:.1f} ms\n\n"
-                f"Lokasi Mod:\n{res.mod_root}"
+                "LayeredFS Deployment Succeeded!",
+                f"Mod successfully compiled and deployed!\n\n"
+                f"• Compiled .dat files: {res.text_count}\n"
+                f"• Asset files: {res.asset_count}\n"
+                f"• Total size: {res.total_bytes / 1024:.1f} KB\n"
+                f"• Elapsed time: {res.elapsed_ms:.1f} ms\n\n"
+                f"Mod Location:\n{res.mod_root}"
             )
         else:
-            self.status_lbl.config(text=f"{Icons.DISCARD} Gagal: {res.error}", foreground="red")
-            messagebox.showerror("Gagal Deploy", f"Terjadi kesalahan saat deploy:\n{res.error}")
+            self.status_lbl.config(text=f"{Icons.DISCARD} Failed: {res.error}", foreground="red")
+            messagebox.showerror("Deployment Failed", f"An error occurred during deployment:\n{res.error}")
 
     def _on_error(self, err: str):
         self.deploy_btn.config(state=tk.NORMAL)

@@ -39,14 +39,14 @@ class TestGlossaryDialog(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_init_ui(self):
-        self.assertEqual(self.dialog.title(), "Kamus Istilah (Glossary)")
+        self.assertEqual(self.dialog.title(), "Glossary (Terminology)")
         columns = self.dialog.tree["columns"]
         self.assertEqual(list(columns), ["no", "term_en", "term_id", "category", "notes"])
 
         # Check treeview rows
         children = self.dialog.tree.get_children()
         self.assertEqual(len(children), 2)
-        self.assertIn("Total: 2 istilah terdaftar", self.dialog.status_lbl.cget("text"))
+        self.assertIn("Total: 2 registered terms", self.dialog.status_lbl.cget("text"))
 
     def test_on_select(self):
         children = self.dialog.tree.get_children()

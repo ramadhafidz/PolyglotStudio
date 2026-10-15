@@ -37,7 +37,7 @@ class BatchTranslateDialog(tk.Toplevel):
         self.is_running = False
         self.stop_requested = False
 
-        self.title("Translasi Otomatis Batch (Batch AI Translation)")
+        self.title("Batch AI Translation")
         self.geometry("740x540")
         self.minsize(680, 480)
         self.transient(parent)
@@ -70,7 +70,7 @@ class BatchTranslateDialog(tk.Toplevel):
 
         title_lbl = ttk.Label(
             header,
-            text=f"{Icons.BATCH} Translasi Otomatis Skala Besar",
+            text=f"{Icons.BATCH} Large-Scale Batch Translation",
             font=("Arial", 12, "bold"),
             foreground="#007ACC"
         )
@@ -78,8 +78,8 @@ class BatchTranslateDialog(tk.Toplevel):
 
         desc_lbl = ttk.Label(
             header,
-            text="Terjemahkan banyak file teks sekaligus dengan AI dan Translation Memory (TM). "
-                 "File otomatis tersimpan aman ke database SQLite saat selesai.",
+            text="Translate multiple dialogue files at scale using AI and Translation Memory (TM). "
+                 "Files are automatically and safely saved to the SQLite database upon completion.",
             font=("Arial", 9),
             foreground="#555555",
             wraplength=700
@@ -87,27 +87,27 @@ class BatchTranslateDialog(tk.Toplevel):
         desc_lbl.pack(anchor="w", pady=(2, 0))
 
         # Scope Options Frame
-        opt_frame = ttk.LabelFrame(self, text="Pengaturan Lingkup & Optimasi", padding=10)
+        opt_frame = ttk.LabelFrame(self, text="Translation Scope & Optimization", padding=10)
         opt_frame.pack(fill=tk.X, padx=12, pady=5)
 
         self.scope_var = tk.StringVar(value="untranslated")
         ttk.Radiobutton(
             opt_frame,
-            text="Hanya File yang Belum Selesai (Untranslated / Pending)",
+            text="Only Untranslated / Pending Files",
             variable=self.scope_var,
             value="untranslated"
         ).grid(row=0, column=0, sticky="w", pady=2)
 
         ttk.Radiobutton(
             opt_frame,
-            text="Seluruh File di Folder Aktif",
+            text="All Files in Current Folder",
             variable=self.scope_var,
             value="current_folder"
         ).grid(row=1, column=0, sticky="w", pady=2)
 
         ttk.Radiobutton(
             opt_frame,
-            text="Semua File Teks Terdaftar di Proyek",
+            text="All Registered Project Dialogue Files",
             variable=self.scope_var,
             value="all"
         ).grid(row=2, column=0, sticky="w", pady=2)
@@ -116,24 +116,24 @@ class BatchTranslateDialog(tk.Toplevel):
         self.use_tm_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             opt_frame,
-            text=f"{Icons.MEMORY} Gunakan Translation Memory (TM) — Auto-resolve kalimat identik (Hemat Token)",
+            text=f"{Icons.MEMORY} Use Translation Memory (TM) — Auto-resolve identical sentences (Save Tokens)",
             variable=self.use_tm_var
         ).grid(row=0, column=1, sticky="w", padx=20, pady=2)
 
         self.auto_save_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             opt_frame,
-            text=f"{Icons.SAVE} Otomatis simpan ke .dat & SQLite database saat tiap file selesai",
+            text=f"{Icons.SAVE} Auto-save to .dat & SQLite database as each file completes",
             variable=self.auto_save_var
         ).grid(row=1, column=1, sticky="w", padx=20, pady=2)
 
         # Progress Section
-        prog_frame = ttk.LabelFrame(self, text="Progres Translasi", padding=10)
+        prog_frame = ttk.LabelFrame(self, text="Translation Progress", padding=10)
         prog_frame.pack(fill=tk.X, padx=12, pady=5)
 
         self.status_lbl = ttk.Label(
             prog_frame,
-            text="Siap untuk memulai.",
+            text="Ready to start.",
             font=("Arial", 9, "bold"),
             foreground="#333333"
         )
@@ -144,14 +144,14 @@ class BatchTranslateDialog(tk.Toplevel):
 
         self.stats_lbl = ttk.Label(
             prog_frame,
-            text="File: 0/0 | Baris AI: 0 | Baris TM (Hemat Token): 0",
+            text="Files: 0/0 | AI Lines: 0 | TM Lines (Tokens Saved): 0",
             font=("Arial", 9),
             foreground="#007ACC"
         )
         self.stats_lbl.pack(anchor="w")
 
         # Log Output Frame
-        log_frame = ttk.LabelFrame(self, text="Log Aktivitas", padding=6)
+        log_frame = ttk.LabelFrame(self, text="Activity Log", padding=6)
         log_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=5)
 
         self.log_text = tk.Text(log_frame, wrap="word", height=8, font=("Consolas", 9), state=tk.DISABLED)
@@ -166,14 +166,14 @@ class BatchTranslateDialog(tk.Toplevel):
 
         self.start_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.DEPLOY} Mulai Translasi Batch",
+            text=f"{Icons.DEPLOY} Start Batch Translation",
             command=self.start_batch_translation
         )
         self.start_btn.pack(side=tk.LEFT)
 
         self.stop_btn = ttk.Button(
             btn_frame,
-            text=f"{Icons.DISCARD} Hentikan",
+            text=f"{Icons.DISCARD} Stop",
             command=self.stop_batch_translation,
             state=tk.DISABLED
         )
@@ -181,7 +181,7 @@ class BatchTranslateDialog(tk.Toplevel):
 
         self.close_btn = ttk.Button(
             btn_frame,
-            text="Tutup",
+            text="Close",
             command=self.on_close
         )
         self.close_btn.pack(side=tk.RIGHT)
@@ -229,23 +229,23 @@ class BatchTranslateDialog(tk.Toplevel):
     def start_batch_translation(self):
         target_files = self.get_target_files()
         if not target_files:
-            messagebox.showinfo("Tidak Ada File", "Tidak ada file yang sesuai dengan kriteria yang dipilih.")
+            messagebox.showinfo("No Files Found", "No dialogue files match the selected filter criteria.")
             return
 
         is_local = "localhost" in self.ai.endpoint or "127.0.0.1" in self.ai.endpoint
         if not is_local and not self.ai.api_key:
             messagebox.showwarning(
-                "API Key Belum Diisi",
-                "API Key belum diisi! Silakan lengkapi pengaturan AI terlebih dahulu."
+                "API Key Required",
+                "AI API Key has not been configured! Please configure your AI settings first."
             )
             return
 
         confirm = messagebox.askyesno(
-            "Konfirmasi Translasi Batch",
-            f"Akan memulai penerjemahan otomatis untuk {len(target_files)} file.\n"
-            f"Gunakan TM: {'Ya' if self.use_tm_var.get() else 'Tidak'}\n"
-            f"Auto-Save: {'Ya' if self.auto_save_var.get() else 'Tidak'}\n\n"
-            "Lanjutkan proses sekarang?"
+            "Confirm Batch Translation",
+            f"Will begin automated translation for {len(target_files)} file(s).\n"
+            f"Use TM: {'Yes' if self.use_tm_var.get() else 'No'}\n"
+            f"Auto-Save: {'Yes' if self.auto_save_var.get() else 'No'}\n\n"
+            "Proceed with batch translation now?"
         )
         if not confirm:
             return
@@ -257,15 +257,15 @@ class BatchTranslateDialog(tk.Toplevel):
         self.close_btn.config(state=tk.DISABLED)
 
         self.progress_bar.config(maximum=len(target_files), value=0)
-        self.log_msg(f"=== Memulai Batch Translasi ({len(target_files)} file) via {self.ai.model} ===")
+        self.log_msg(f"=== Starting Batch Translation ({len(target_files)} files) via {self.ai.model} ===")
 
         threading.Thread(target=self._batch_worker, args=(target_files,), daemon=True).start()
 
     def stop_batch_translation(self):
         if self.is_running:
             self.stop_requested = True
-            self.status_lbl.config(text="Menghentikan setelah file ini selesai...", foreground="orange")
-            self.log_msg("[PERINGATAN] Penghentian proses diminta oleh pengguna...")
+            self.status_lbl.config(text="Stopping after current file completes...", foreground="orange")
+            self.log_msg("[WARNING] Process cancellation requested by user...")
             self.stop_btn.config(state=tk.DISABLED)
 
     def _batch_worker(self, target_files: List[Dict[str, Any]]):
@@ -277,13 +277,13 @@ class BatchTranslateDialog(tk.Toplevel):
 
         for idx, item in enumerate(target_files, 1):
             if self.stop_requested:
-                self.log_msg("Translasi batch dihentikan oleh pengguna.")
+                self.log_msg("Batch translation stopped by user.")
                 break
 
             fname = item["filename"]
             rel_p = item["rel_path"]
             self.after(0, lambda i=idx, f=fname: self.status_lbl.config(
-                text=f"Memproses [{i}/{tot_files}]: {f}...",
+                text=f"Processing [{i}/{tot_files}]: {f}...",
                 foreground="#007ACC"
             ))
 
@@ -297,12 +297,12 @@ class BatchTranslateDialog(tk.Toplevel):
                         raw_bytes = f_in.read()
 
                 if not raw_bytes:
-                    self.log_msg(f"[{idx}/{tot_files}] Gagal membaca data file: {fname}")
+                    self.log_msg(f"[{idx}/{tot_files}] Failed to read file data: {fname}")
                     continue
 
                 orig_lines = self.app.codec.decode_bytes(raw_bytes)
                 if not orig_lines:
-                    self.log_msg(f"[{idx}/{tot_files}] File kosong: {fname}")
+                    self.log_msg(f"[{idx}/{tot_files}] Empty file: {fname}")
                     continue
 
                 # 2. Check Translation Memory (TM) exact matches
@@ -370,11 +370,11 @@ class BatchTranslateDialog(tk.Toplevel):
                     item["diffs"] = diffs
                     item["total"] = total
 
-                tm_info = f" (TM: {file_tm_hits} baris)" if file_tm_hits else ""
-                self.log_msg(f"[{idx}/{tot_files}] Selesai: {fname} ({len(orig_lines)} baris){tm_info}")
+                tm_info = f" (TM: {file_tm_hits} lines)" if file_tm_hits else ""
+                self.log_msg(f"[{idx}/{tot_files}] Completed: {fname} ({len(orig_lines)} lines){tm_info}")
 
             except Exception as e:
-                self.log_msg(f"[{idx}/{tot_files}] ERROR pada {fname}: {e}")
+                self.log_msg(f"[{idx}/{tot_files}] ERROR on {fname}: {e}")
                 log.error(f"Batch translation error on {fname}: {e}", exc_info=True)
 
             # Update progress UI
@@ -386,7 +386,7 @@ class BatchTranslateDialog(tk.Toplevel):
     def _update_ui_progress(self, cur_idx: int, tot_files: int, ai_lines: int, tm_lines: int):
         self.progress_bar.config(value=cur_idx)
         self.stats_lbl.config(
-            text=f"File: {cur_idx}/{tot_files} | Baris AI: {ai_lines} | Baris TM (Hemat Token): {tm_lines}"
+            text=f"Files: {cur_idx}/{tot_files} | AI Lines: {ai_lines} | TM Lines (Tokens Saved): {tm_lines}"
         )
 
     def _on_batch_complete(self, ai_lines: int, tm_lines: int):
@@ -395,8 +395,8 @@ class BatchTranslateDialog(tk.Toplevel):
         self.stop_btn.config(state=tk.DISABLED)
         self.close_btn.config(state=tk.NORMAL)
 
-        self.status_lbl.config(text="Selesai!", foreground="#2E7D32")
-        self.log_msg(f"=== Batch Translasi Selesai: {ai_lines} baris diterjemahkan AI, {tm_lines} baris diselesaikan instan oleh TM! ===")
+        self.status_lbl.config(text="Completed!", foreground="#2E7D32")
+        self.log_msg(f"=== Batch Translation Completed: {ai_lines} lines translated by AI, {tm_lines} lines resolved instantly by TM! ===")
 
         # Refresh main app view
         try:
@@ -406,16 +406,16 @@ class BatchTranslateDialog(tk.Toplevel):
             pass
 
         messagebox.showinfo(
-            "Batch Selesai",
-            f"Proses batch translasi berhasil diselesaikan!\n\n"
-            f"• Baris diterjemahkan AI: {ai_lines}\n"
-            f"• Baris hemat via TM: {tm_lines}\n"
-            f"• Seluruh hasil tersimpan otomatis di SQLite."
+            "Batch Completed",
+            f"Batch translation process completed successfully!\n\n"
+            f"• AI translated lines: {ai_lines}\n"
+            f"• Lines saved via TM: {tm_lines}\n"
+            f"• All results automatically saved to SQLite."
         )
 
     def on_close(self):
         if self.is_running:
-            if not messagebox.askyesno("Sedang Berjalan", "Translasi batch sedang berjalan di latar belakang. Yakin ingin menutup?"):
+            if not messagebox.askyesno("Task Running", "Batch translation is currently running in the background. Are you sure you want to exit?"):
                 return
             self.stop_requested = True
         self.destroy()
