@@ -146,5 +146,98 @@ class TestAIDiffReview(unittest.TestCase):
 
         mock_auto_save.assert_not_called()
 
+    def test_ai_translation_isolated_when_user_switches_file(self):
+        """
+        Verify Solution 2: When translating File 0, if the user switches to File 1 mid-flight:
+        - File 1's UI and lines are NOT contaminated.
+        - File 0's translation is auto-saved directly to SQLite.
+        - File 0's status/diffs in file_items are updated.
+        - active_ai_tasks is cleanly resolved.
+        """
+        import threading
+
+        self.app.file_items = [
+            {
+                "filename": "file0.dat",
+                "rel_path": "common/file0.dat",
+                "dat_path": "dummy/file0.dat",
+                "status": "untranslated",
+                "diffs": 0,
+                "total": 3,
+                "is_manual": False
+            },
+            {
+                "filename": "file1.dat",
+                "rel_path": "common/file1.dat",
+                "dat_path": "dummy/file1.dat",
+                "status": "untranslated",
+                "diffs": 0,
+                "total": 1,
+                "is_manual": False
+            }
+        ]
+
+        # User is viewing File 0
+        self.app.current_file_index = 0
+        self.app.current_orig_lines = ["Hello", "World", "Pikachu"]
+        self.app.current_trans_lines = ["Hello", "World", "Pikachu"]
+        self.app.pending_ai_diffs = {}
+
+        # Mock AI translation side effect: while translating, user navigates to File 1!
+        def mock_translate(*args, **kwargs):
+            # User navigated to File 1 (fewer lines than File 0)
+            self.app.current_file_index = 1
+            self.app.current_orig_lines = ["Good morning"]
+            self.app.current_trans_lines = ["Good morning"]
+            self.app.pending_ai_diffs = {}
+            return ["Halo", "Dunia", "Pikachu"]
+
+        self.app.ai.translate_lines = MagicMock(side_effect=mock_translate)
+        self.app.db.save_file_translation = MagicMock(return_value=("completed", 2, 3, False))
+        self.app.db.get_exact_tm_match = MagicMock(return_value=None)
+        self.app.db.get_glossary_prompt_block = MagicMock(return_value="")
+        self.app.db.get_tm_prompt_block = MagicMock(return_value="")
+
+        # Synchronous execution of thread for deterministic testing
+        real_thread_init = threading.Thread.__init__
+        def sync_thread_init(thread_self, *args, **kwargs):
+            real_thread_init(thread_self, *args, **kwargs)
+            # Store target
+            orig_run = thread_self.run
+            def run_and_drain():
+                orig_run()
+                self.app.update()
+            thread_self.run = run_and_drain
+
+        with patch("threading.Thread.start", autospec=True) as mock_thread_start:
+            # Let thread start run target synchronously
+            mock_thread_start.side_effect = lambda t: t.run()
+            self.app.translate_with_ai()
+
+        # Process any pending tkinter callbacks
+        self.app.update()
+
+        # 1. File 1 MUST NOT be contaminated with File 0's translations
+        self.assertEqual(self.app.current_file_index, 1)
+        self.assertEqual(self.app.current_trans_lines, ["Good morning"])
+        self.assertEqual(len(self.app.pending_ai_diffs), 0)
+
+        # 2. File 0's translation MUST be auto-saved to SQLite directly
+        self.app.db.save_file_translation.assert_called_once_with(
+            "file0.dat",
+            "common/file0.dat",
+            ["Hello", "World", "Pikachu"],
+            ["Halo", "Dunia", "Pikachu"]
+        )
+
+        # 3. File 0's metadata in file_items must reflect the saved status
+        self.assertEqual(self.app.file_items[0]["status"], "completed")
+        self.assertEqual(self.app.file_items[0]["diffs"], 2)
+
+        # 4. active_ai_tasks must be clean
+        self.assertNotIn("file0.dat", self.app.active_ai_tasks)
+
+
 if __name__ == "__main__":
     unittest.main()
+

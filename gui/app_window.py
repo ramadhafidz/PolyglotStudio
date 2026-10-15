@@ -90,6 +90,9 @@ class ClassicDATStudioApp(tk.Tk):
         self.tree_item_to_index: Dict[str, int] = {}
         self._folder_pending_items: Dict[str, List[int]] = {}
 
+        # Active background AI translation tasks: {filename: task_metadata_dict}
+        self.active_ai_tasks: Dict[str, Dict[str, Any]] = {}
+
         # RomFS Virtual Explorer Client
         self.trpfs_client = TrpfsClient()
         self.is_romfs_mode = False
@@ -123,6 +126,17 @@ class ClassicDATStudioApp(tk.Tk):
             log.warning(f"Neither RomFS dump nor default English directory found.")
 
     def on_close_window(self):
+        if hasattr(self, 'active_ai_tasks') and self.active_ai_tasks:
+            count = len(self.active_ai_tasks)
+            names = ", ".join(list(self.active_ai_tasks.keys())[:3])
+            if count > 3:
+                names += f", dan {count - 3} file lainnya"
+            if not messagebox.askyesno(
+                "AI Masih Berjalan",
+                f"Ada {count} proses translasi AI yang masih berjalan di latar belakang ({names}).\n\n"
+                "Apakah Anda yakin ingin tetap menutup aplikasi?"
+            ):
+                return
         self.destroy()
 
     def destroy(self):
@@ -782,13 +796,7 @@ class ClassicDATStudioApp(tk.Tk):
         # Insert root level files directly
         for idx in root_items:
             item = self.file_items[idx]
-            status_icon, _, _ = StatusTracker.get_display_info(
-                item.get("status", "untranslated"), 
-                item.get("diffs", 0), 
-                item.get("total", 0), 
-                is_manual=item.get("is_manual", False)
-            )
-            item_text = f"{status_icon} {item['filename']}"
+            item_text = self._get_tree_item_text(item)
             leaf_id = self.file_tree.insert('', 'end', text=item_text)
             self.tree_item_to_index[leaf_id] = idx
 
@@ -812,13 +820,7 @@ class ClassicDATStudioApp(tk.Tk):
                 # Render children directly for open folder
                 for idx in indices:
                     item = self.file_items[idx]
-                    status_icon, _, _ = StatusTracker.get_display_info(
-                        item.get("status", "untranslated"), 
-                        item.get("diffs", 0), 
-                        item.get("total", 0), 
-                        is_manual=item.get("is_manual", False)
-                    )
-                    item_text = f"{status_icon} {item['filename']}"
+                    item_text = self._get_tree_item_text(item)
                     leaf_id = self.file_tree.insert(node_id, 'end', text=item_text)
                     self.tree_item_to_index[leaf_id] = idx
             else:
@@ -827,6 +829,20 @@ class ClassicDATStudioApp(tk.Tk):
                 self._folder_pending_items[node_id] = indices
 
         log.debug(f"Populated tree with {len(self.tree_item_to_index)} visible items in {(time.time()-t0)*1000:.1f}ms")
+
+    def _get_tree_item_text(self, item: Dict[str, Any]) -> str:
+        """Returns the formatted item label with icon, reflecting active background AI tasks if any."""
+        stat = item.get("status", "untranslated")
+        if item.get("filename") in getattr(self, "active_ai_tasks", {}):
+            status_icon = Icons.SYNC
+        else:
+            status_icon, _, _ = StatusTracker.get_display_info(
+                stat, 
+                item.get("diffs", 0), 
+                item.get("total", 0), 
+                is_manual=item.get("is_manual", False)
+            )
+        return f"{status_icon} {item['filename']}"
 
     def on_tree_item_open(self, event=None):
         """Lazy load children when a folder node is expanded."""
@@ -843,13 +859,7 @@ class ClassicDATStudioApp(tk.Tk):
                             self.file_tree.delete(ch)
                     for idx in indices:
                         item = self.file_items[idx]
-                        status_icon, _, _ = StatusTracker.get_display_info(
-                            item.get("status", "untranslated"), 
-                            item.get("diffs", 0), 
-                            item.get("total", 0), 
-                            is_manual=item.get("is_manual", False)
-                        )
-                        item_text = f"{status_icon} {item['filename']}"
+                        item_text = self._get_tree_item_text(item)
                         leaf_id = self.file_tree.insert(node_id, 'end', text=item_text)
                         self.tree_item_to_index[leaf_id] = idx
                     to_remove.append(node_id)
@@ -865,15 +875,11 @@ class ClassicDATStudioApp(tk.Tk):
 
     def update_tree_item_display(self, index: int):
         """Update just a single item's icon/text in the tree without touching folder open/close states."""
+        if index < 0 or index >= len(self.file_items):
+            return
         item = self.file_items[index]
         stat = item.get("status", "untranslated")
-        status_icon, _, _ = StatusTracker.get_display_info(
-            stat, 
-            item.get("diffs", 0), 
-            item.get("total", 0), 
-            is_manual=item.get("is_manual", False)
-        )
-        item_text = f"{status_icon} {item['filename']}"
+        item_text = self._get_tree_item_text(item)
 
         filter_mode = self.fe_filter_var.get()
         # If active filter would hide this item, refresh the whole tree (with open_states preserved)
@@ -1064,7 +1070,17 @@ class ClassicDATStudioApp(tk.Tk):
         if hasattr(self, 'text_editor_container'):
             self.text_editor_container.pack(fill=tk.BOTH, expand=True)
 
-        self.ai_btn.config(state=tk.NORMAL)
+        # Check if this file is actively being translated in background
+        if item["filename"] in getattr(self, "active_ai_tasks", {}):
+            self.ai_btn.config(state=tk.DISABLED, text=f"{Icons.SYNC} Translating...")
+            task_info = self.active_ai_tasks[item["filename"]]
+            self.info_status_lbl.config(
+                text=task_info.get("progress_text", "Menerjemahkan dengan AI..."), 
+                foreground="#007ACC"
+            )
+        else:
+            self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
+
         self.save_btn.config(state=tk.NORMAL)
         self.export_btn.config(state=tk.NORMAL)
         self.import_btn.config(state=tk.NORMAL)
@@ -1604,9 +1620,20 @@ class ClassicDATStudioApp(tk.Tk):
 
     # ----------------- AI Translate & Review Staging -----------------
     def translate_with_ai(self):
-        if self.current_file_index < 0:
+        if self.current_file_index < 0 or self.current_file_index >= len(self.file_items):
             return
         item = self.file_items[self.current_file_index]
+        target_filename = item["filename"]
+        target_rel_path = item["rel_path"]
+        target_file_index = self.current_file_index
+
+        # Guard against double-triggering the same file
+        if target_filename in getattr(self, "active_ai_tasks", {}):
+            messagebox.showinfo(
+                "AI Sedang Berjalan", 
+                f"File '{target_filename}' saat ini sudah sedang diterjemahkan oleh AI di latar belakang."
+            )
+            return
 
         is_local = "localhost" in self.ai.endpoint or "127.0.0.1" in self.ai.endpoint
         if not is_local and not self.ai.api_key:
@@ -1616,14 +1643,30 @@ class ClassicDATStudioApp(tk.Tk):
             )
             return
 
+        # Snapshot data so any file switching or UI edits do not contaminate this background job
+        target_orig_lines = list(self.current_orig_lines)
+        target_trans_lines = list(self.current_trans_lines)
+        tot_lines = len(target_orig_lines)
+
+        if tot_lines == 0:
+            messagebox.showinfo("File Kosong", "Tidak ada baris teks yang perlu diterjemahkan pada file ini.")
+            return
+
+        # Register active task
+        self.active_ai_tasks[target_filename] = {
+            "rel_path": target_rel_path,
+            "progress_text": f"Menghubungi AI ({self.ai.model})...",
+            "lines_count": tot_lines
+        }
+        self.update_tree_item_display(target_file_index)
+
         self.ai_btn.config(state=tk.DISABLED, text=f"{Icons.SYNC} Translating...")
         self.info_status_lbl.config(text=f"Menghubungi AI ({self.ai.model})...", foreground="#007ACC")
-        log.info(f"Starting AI translation for {item['filename']} ({len(self.current_orig_lines)} lines) via {self.ai.provider} ({self.ai.model})...")
+        log.info(f"Starting isolated AI translation for {target_filename} ({tot_lines} lines) via {self.ai.provider} ({self.ai.model})...")
 
         def worker():
             try:
                 t0 = time.time()
-                tot_lines = len(self.current_orig_lines)
                 new_terms_recorded: List[str] = []
 
                 # 1. Check Translation Memory (TM) for 100% exact matches (min_words=3)
@@ -1632,7 +1675,7 @@ class ClassicDATStudioApp(tk.Tk):
                 untranslated_indices = []
                 tm_hits = 0
 
-                for i, orig_text in enumerate(self.current_orig_lines):
+                for i, orig_text in enumerate(target_orig_lines):
                     tm_match = self.db.get_exact_tm_match(orig_text, min_words=3)
                     if tm_match:
                         pre_filled[i] = tm_match
@@ -1642,7 +1685,7 @@ class ClassicDATStudioApp(tk.Tk):
                         untranslated_indices.append(i)
 
                 if tm_hits > 0:
-                    log.info(f"Translation Memory (TM) resolved {tm_hits}/{tot_lines} lines instantly (0 API tokens).")
+                    log.info(f"Translation Memory (TM) resolved {tm_hits}/{tot_lines} lines instantly for {target_filename} (0 API tokens).")
 
                 if not untranslated_orig_lines:
                     result = pre_filled
@@ -1681,13 +1724,17 @@ class ClassicDATStudioApp(tk.Tk):
 
                     def on_progress(cur: int, tot: int):
                         total_progress = tm_hits + cur
-                        self.after(0, lambda c=total_progress, t=tot_lines: self.info_status_lbl.config(
-                            text=f"Menerjemahkan dengan AI ({self.ai.model}): {c}/{t} baris... (TM: {tm_hits})",
-                            foreground="#007ACC"
-                        ))
-                        self.after(0, lambda c=total_progress, t=tot_lines: self.ai_btn.config(
-                            text=f"{Icons.SYNC} {c}/{t}..."
-                        ))
+                        prog_text = f"Menerjemahkan dengan AI ({self.ai.model}): {total_progress}/{tot_lines} baris... (TM: {tm_hits})"
+                        if target_filename in self.active_ai_tasks:
+                            self.active_ai_tasks[target_filename]["progress_text"] = prog_text
+                        def update_ui():
+                            # Only update status bar and button if user is STILL viewing this exact file
+                            if (self.current_file_index >= 0 and 
+                                self.current_file_index < len(self.file_items) and 
+                                self.file_items[self.current_file_index]["filename"] == target_filename):
+                                self.info_status_lbl.config(text=prog_text, foreground="#007ACC")
+                                self.ai_btn.config(text=f"{Icons.SYNC} {total_progress}/{tot_lines}...")
+                        self.after(0, update_ui)
 
                     ai_results = self.ai.translate_lines(
                         untranslated_orig_lines, 
@@ -1701,49 +1748,145 @@ class ClassicDATStudioApp(tk.Tk):
 
                     for sub_i, res_l in enumerate(ai_results):
                         real_i = untranslated_indices[sub_i]
-                        pre_filled[real_i] = TagGuard.sanitize_line(self.current_orig_lines[real_i], res_l)
+                        pre_filled[real_i] = TagGuard.sanitize_line(target_orig_lines[real_i], res_l)
 
                     result = pre_filled
 
-                log.info(f"AI/TM translation finished in {time.time()-t0:.2f}s with {len(result)} lines (TM hits: {tm_hits}, New terms: {len(new_terms_recorded)})")
+                log.info(f"AI/TM translation finished in {time.time()-t0:.2f}s with {len(result)} lines for {target_filename} (TM hits: {tm_hits}, New terms: {len(new_terms_recorded)})")
+
                 def on_success():
-                    self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
+                    self.active_ai_tasks.pop(target_filename, None)
 
-                    # Identify diffs between current translations and new AI/TM suggestions
-                    diffs_found: Dict[int, str] = {}
-                    for i, new_line in enumerate(result):
-                        cur_line = self.current_trans_lines[i] if i < len(self.current_trans_lines) else ""
-                        if new_line != cur_line:
-                            diffs_found[i] = new_line
+                    # Automatically record translation pairs into Translation Memory (TM)
+                    valid_pairs = []
+                    for o, t in zip(target_orig_lines, result):
+                        if o and t and o != t and not o.startswith("[~"):
+                            valid_pairs.append((o, t))
+                    if valid_pairs:
+                        try:
+                            self.db.add_batch_tm_entries(valid_pairs, context_file=target_filename)
+                        except Exception as tm_ex:
+                            log.warning(f"Failed to record TM entries for {target_filename}: {tm_ex}")
 
-                    if not diffs_found:
-                        self.info_status_lbl.config(
-                            text="AI/TM selesai: Semua baris sudah sesuai, tidak ada perubahan baru.", 
-                            foreground="#007ACC"
-                        )
-                        messagebox.showinfo(
-                            "AI/TM Translate Selesai", 
-                            "Tidak ada baris yang berubah. Hasil terjemahan sama persis dengan terjemahan saat ini."
-                        )
-                        return
+                    # Find item index in self.file_items
+                    matched_idx = -1
+                    for idx, it in enumerate(self.file_items):
+                        if it["filename"] == target_filename:
+                            matched_idx = idx
+                            break
 
-                    self.pending_ai_diffs = diffs_found
-                    self.update_table_display()
-                    self.update_review_bar()
-                    extra_terms = f" ({len(new_terms_recorded)} kosakata baru dicatat ke Kamus)" if new_terms_recorded else ""
-                    tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
-                    self.info_status_lbl.config(
-                        text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{tm_info}{extra_terms} (klik {Icons.ACCEPT} per baris atau Accept All)", 
-                        foreground="#155724"
+                    is_user_still_on_file = (
+                        self.current_file_index >= 0 and 
+                        self.current_file_index < len(self.file_items) and 
+                        self.file_items[self.current_file_index]["filename"] == target_filename
                     )
+
+                    if is_user_still_on_file:
+                        # SCENARIO A: User is still on the same file -> Interactive Review Staging
+                        self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
+
+                        diffs_found: Dict[int, str] = {}
+                        for i, new_line in enumerate(result):
+                            cur_line = self.current_trans_lines[i] if i < len(self.current_trans_lines) else ""
+                            if new_line != cur_line:
+                                diffs_found[i] = new_line
+
+                        if matched_idx >= 0:
+                            self.update_tree_item_display(matched_idx)
+
+                        if not diffs_found:
+                            self.info_status_lbl.config(
+                                text="AI/TM selesai: Semua baris sudah sesuai, tidak ada perubahan baru.", 
+                                foreground="#007ACC"
+                            )
+                            messagebox.showinfo(
+                                "AI/TM Translate Selesai", 
+                                "Tidak ada baris yang berubah. Hasil terjemahan sama persis dengan terjemahan saat ini."
+                            )
+                            return
+
+                        self.pending_ai_diffs = diffs_found
+                        self.update_table_display()
+                        self.update_review_bar()
+                        extra_terms = f" ({len(new_terms_recorded)} kosakata baru dicatat ke Kamus)" if new_terms_recorded else ""
+                        tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
+                        self.info_status_lbl.config(
+                            text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{tm_info}{extra_terms} (klik {Icons.ACCEPT} per baris atau Accept All)", 
+                            foreground="#155724"
+                        )
+                    else:
+                        # SCENARIO B: User navigated away -> Auto-save directly to SQLite & .dat, update metadata
+                        log.info(f"User navigated to another file. Auto-saving background AI result for '{target_filename}'...")
+
+                        if matched_idx >= 0:
+                            it = self.file_items[matched_idx]
+                            if not it.get("is_virtual") and os.path.isabs(it.get("dat_path", "")):
+                                try:
+                                    self.codec.write_file(it["dat_path"], result)
+                                except Exception as w_ex:
+                                    log.warning(f"Could not write .dat on disk for {target_filename}: {w_ex}")
+                            else:
+                                mod_dir = os.path.join(self.db.project_dir, "modified", os.path.dirname(target_rel_path))
+                                os.makedirs(mod_dir, exist_ok=True)
+                                mod_dat = os.path.join(mod_dir, target_filename)
+                                try:
+                                    self.codec.write_file(mod_dat, result)
+                                    it["dat_path"] = mod_dat
+                                except Exception as w_ex:
+                                    log.warning(f"Could not write virtual mod_dat for {target_filename}: {w_ex}")
+
+                        stat, diffs, total, is_manual = self.db.save_file_translation(
+                            target_filename,
+                            target_rel_path,
+                            target_orig_lines,
+                            result
+                        )
+
+                        if matched_idx >= 0:
+                            it = self.file_items[matched_idx]
+                            it["status"] = stat
+                            it["diffs"] = diffs
+                            it["total"] = total
+                            it["is_manual"] = is_manual
+                            self.update_tree_item_display(matched_idx)
+
+                        self.update_progress_summary()
+                        extra_terms = f" ({len(new_terms_recorded)} istilah baru)" if new_terms_recorded else ""
+                        self.info_status_lbl.config(
+                            text=f"{Icons.ACCEPT} AI Translate '{target_filename}' selesai di latar belakang ({diffs} baris diubah){extra_terms}.",
+                            foreground="#155724"
+                        )
+
                 self.after(0, on_success)
             except Exception as e:
                 err_msg = str(e)
-                log.error(f"AI translation failed for {item['filename']}: {err_msg}", exc_info=True)
+                log.error(f"AI translation failed for {target_filename}: {err_msg}", exc_info=True)
+
                 def on_fail(msg=err_msg):
-                    self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
-                    self.info_status_lbl.config(text=f"{Icons.DISCARD} Gagal menerjemahkan", foreground="red")
-                    messagebox.showerror("AI Translation Error", msg)
+                    self.active_ai_tasks.pop(target_filename, None)
+                    matched_idx = -1
+                    for idx, it in enumerate(self.file_items):
+                        if it["filename"] == target_filename:
+                            matched_idx = idx
+                            break
+                    if matched_idx >= 0:
+                        self.update_tree_item_display(matched_idx)
+
+                    is_user_still_on_file = (
+                        self.current_file_index >= 0 and 
+                        self.current_file_index < len(self.file_items) and 
+                        self.file_items[self.current_file_index]["filename"] == target_filename
+                    )
+                    if is_user_still_on_file:
+                        self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
+                        self.info_status_lbl.config(text=f"{Icons.DISCARD} Gagal menerjemahkan", foreground="red")
+                        messagebox.showerror("AI Translation Error", msg)
+                    else:
+                        self.info_status_lbl.config(
+                            text=f"{Icons.DISCARD} Gagal menerjemahkan '{target_filename}' di latar belakang: {msg[:60]}", 
+                            foreground="red"
+                        )
+
                 self.after(0, on_fail)
 
         threading.Thread(target=worker, daemon=True).start()
