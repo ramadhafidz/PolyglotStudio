@@ -56,6 +56,13 @@ class TagGuard:
                         trans = tag + trans
                     elif original.endswith(tag) and not trans.endswith(tag):
                         trans = trans + tag
+                    else:
+                        if trans.endswith('\\r'):
+                            trans = trans[:-2] + " " + tag + "\\r"
+                        elif trans.endswith('\\c'):
+                            trans = trans[:-2] + " " + tag + "\\c"
+                        else:
+                            trans = trans + " " + tag
 
         return trans
 
@@ -81,3 +88,80 @@ class TagGuard:
                 errors.append(f"Line {idx}: {err}")
 
         return len(errors) == 0, errors
+
+    @classmethod
+    def validate_line_diagnostics(cls, original: str, translated: str, max_line_len: int = 85) -> Dict[str, Any]:
+        """
+        Detailed QA / Linter diagnostics for a translated dialogue line.
+        Checks:
+        1. Tag mismatches (missing or corrupted [VAR ...], [WAIT ...], [~ ...])
+        2. Control token mismatches (\\n, \\r, \\c)
+        3. Raw unescaped enter/newlines (Game Freak expects literal \\n)
+        4. Line length warnings (potential UI text overflow on Switch screen)
+        5. Auto-repair ability via sanitize_line
+        """
+        errors: List[str] = []
+        warnings: List[str] = []
+
+        orig_tags = cls.extract_tags(original)
+        trans_tags = cls.extract_tags(translated)
+
+        # 1. Tag count & identity mismatch
+        missing_tags = [t for t in orig_tags if t not in trans_tags]
+        extra_tags = [t for t in trans_tags if t not in orig_tags]
+        if missing_tags:
+            errors.append(f"Tag hilang: {', '.join(missing_tags)}")
+        if extra_tags:
+            errors.append(f"Tag tidak dikenal: {', '.join(extra_tags)}")
+
+        # 2. Control character endings
+        orig_clean = original.rstrip()
+        trans_clean = translated.rstrip()
+        if orig_clean.endswith('\\r') and not trans_clean.endswith('\\r'):
+            errors.append("Hilang kontrol '\\r' di akhir kalimat")
+        if orig_clean.endswith('\\c') and not trans_clean.endswith('\\c'):
+            errors.append("Hilang kontrol '\\c' di akhir kalimat")
+
+        # 3. Raw newlines check
+        if '\n' in translated or '\r' in translated:
+            errors.append("Terdapat karakter enter asli (wajib gunakan literal '\\n')")
+
+        # 4. Length warning (stripping control tags for visible text estimation)
+        clean_visible = re.sub(r'\[.*?\]|\\n|\\r|\\c', '', translated).strip()
+        if len(clean_visible) > max_line_len:
+            warnings.append(f"Teks panjang ({len(clean_visible)} karakter) — potensi overflow di layar Switch")
+
+        # 5. Check auto-fix potential
+        sanitized = cls.sanitize_line(original, translated)
+        can_auto_fix = (sanitized != translated and len(errors) > 0)
+
+        return {
+            "is_valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "can_auto_fix": can_auto_fix,
+            "fixed_text": sanitized
+        }
+
+    @classmethod
+    def validate_file_diagnostics(cls, orig_lines: List[str], trans_lines: List[str]) -> Dict[str, Any]:
+        """Runs QA diagnostics over all lines in a file, returning per-line errors and summary counts."""
+        line_reports: Dict[int, Dict[str, Any]] = {}
+        total_errors = 0
+        total_warnings = 0
+
+        for idx, (orig, trans) in enumerate(zip(orig_lines, trans_lines)):
+            diag = cls.validate_line_diagnostics(orig, trans)
+            if not diag["is_valid"] or diag["warnings"]:
+                line_reports[idx] = diag
+                total_errors += len(diag["errors"])
+                total_warnings += len(diag["warnings"])
+
+        return {
+            "total_errors": total_errors,
+            "total_warnings": total_warnings,
+            "failed_line_count": len([d for d in line_reports.values() if not d["is_valid"]]),
+            "warning_line_count": len([d for d in line_reports.values() if d["warnings"]]),
+            "line_reports": line_reports
+        }
+

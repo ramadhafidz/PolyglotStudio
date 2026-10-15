@@ -52,3 +52,9 @@ class Icons:
 
     # Glossary & Terminology
     GLOSSARY = "\uE82D"      # Dictionary / Library book
+    MEMORY = "\uE81C"        # Brain / Memory chip (Translation Memory)
+    BATCH = "\uE8D4"         # Multi-items / Batch process
+    WARNING = "\uE7BA"       # Warning triangle
+    ERROR = "\uE783"         # Error symbol
+    REPAIR = "\uE90F"        # Auto-fix / Repair wrench
+

@@ -223,7 +223,16 @@ class ClassicDATStudioApp(tk.Tk):
 
         # AI Translate Button
         self.ai_btn = ttk.Button(top_frame, text=f"{Icons.AI_SPARKLE} Translate AI", command=self.translate_with_ai, state=tk.DISABLED)
-        self.ai_btn.pack(side=tk.LEFT, padx=6)
+        self.ai_btn.pack(side=tk.LEFT, padx=4)
+
+        # Batch AI Translation
+        self.batch_btn = ttk.Button(top_frame, text=f"{Icons.BATCH} Batch AI", command=self.open_batch_translate_dialog, state=tk.NORMAL)
+        self.batch_btn.pack(side=tk.LEFT, padx=2)
+
+        # Auto-Fix Tags Button
+        self.qa_fix_btn = ttk.Button(top_frame, text=f"{Icons.REPAIR} Fix Tags", command=self.auto_fix_all_tags, state=tk.NORMAL)
+        self.qa_fix_btn.pack(side=tk.LEFT, padx=2)
+
 
         # Deploy Mod Button
         self.deploy_btn = ttk.Button(top_frame, text=f"{Icons.DEPLOY} Deploy to Eden", command=self.deploy_to_eden, state=tk.NORMAL)
@@ -458,6 +467,7 @@ class ClassicDATStudioApp(tk.Tk):
         self.table.tag_configure("diff_pending_odd", background="#D4EDDA", foreground="#155724")
         self.table.tag_configure("search_highlight", background="#FFF59D", foreground="#000000")
         self.table.tag_configure("tag_error", background="#FFCDD2", foreground="#900C3F")
+        self.table.tag_configure("tag_warning", background="#FFF3E0", foreground="#E65100")
 
         # Lower Pane: Live Dialogue Inspector (Syntax Highlight Preview)
         self.inspector_visible = True
@@ -1128,6 +1138,7 @@ class ClassicDATStudioApp(tk.Tk):
             self.table.delete(row)
 
         max_pending = (max(self.pending_ai_diffs.keys()) + 1) if self.pending_ai_diffs else 0
+        any_fixable_errors = False
         max_len = max(len(self.current_orig_lines), len(self.current_trans_lines), max_pending)
         for i in range(max_len):
             orig = self.current_orig_lines[i] if i < len(self.current_orig_lines) else ""
@@ -1142,10 +1153,20 @@ class ClassicDATStudioApp(tk.Tk):
                 accept_sym = ""
                 row_tag = "even" if i % 2 == 0 else "odd"
 
-            valid, _ = TagGuard.validate_line(orig, trans)
-            tags = (row_tag,) if valid else (row_tag, "tag_error")
+            diag = TagGuard.validate_line_diagnostics(orig, trans)
+            if not diag["is_valid"]:
+                tags = (row_tag, "tag_error")
+                if diag["can_auto_fix"]:
+                    any_fixable_errors = True
+            elif diag["warnings"]:
+                tags = (row_tag, "tag_warning")
+            else:
+                tags = (row_tag,)
 
             self.table.insert('', 'end', values=(i, accept_sym, orig, trans), tags=tags)
+
+        if hasattr(self, 'qa_fix_btn'):
+            self.qa_fix_btn.config(state=tk.NORMAL if any_fixable_errors else tk.DISABLED)
 
         # Auto-calculate comfortable column widths based on longest text
         try:
@@ -1226,11 +1247,16 @@ class ClassicDATStudioApp(tk.Tk):
         self.inspector_title_lbl.config(text=f"{Icons.EDIT} Dialogue Line {line_idx}")
         DialogueSyntaxHighlighter.set_text_with_highlight(self.inspector_orig_box, orig_text, editable=False)
         DialogueSyntaxHighlighter.set_text_with_highlight(self.inspector_trans_box, trans_text, editable=False)
-        valid, err = TagGuard.validate_line(orig_text, trans_text)
-        if valid:
-            self.inspector_tag_lbl.config(text=f"{Icons.ACCEPT} Tags Match", foreground="#2E7D32")
+        diag = TagGuard.validate_line_diagnostics(orig_text, trans_text)
+        if not diag["is_valid"]:
+            err_text = " | ".join(diag["errors"])
+            self.inspector_tag_lbl.config(text=f"{Icons.ERROR} {err_text[:60]}", foreground="#C62828")
+        elif diag["warnings"]:
+            warn_text = " | ".join(diag["warnings"])
+            self.inspector_tag_lbl.config(text=f"{Icons.WARNING} {warn_text[:60]}", foreground="#E65100")
         else:
-            self.inspector_tag_lbl.config(text=f"{Icons.DISCARD} {err[:50]}", foreground="#C62828")
+            self.inspector_tag_lbl.config(text=f"{Icons.ACCEPT} Tags Match", foreground="#2E7D32")
+
 
     def clear_inspector(self):
         if not hasattr(self, 'inspector_orig_box'):
@@ -1499,7 +1525,6 @@ class ClassicDATStudioApp(tk.Tk):
                 self.codec.write_file(mod_dat, self.current_trans_lines)
                 item["dat_path"] = mod_dat
             
-            # 2. Persist translations and metadata into SQLite Database
             stat, diffs, total, is_manual = self.db.save_file_translation(
                 item["filename"], 
                 item["rel_path"], 
@@ -1510,6 +1535,12 @@ class ClassicDATStudioApp(tk.Tk):
             item["diffs"] = diffs
             item["total"] = total
             item["is_manual"] = is_manual
+
+            # 2b. Automatically record translation pairs into Translation Memory (TM)
+            if self.current_orig_lines and self.current_trans_lines:
+                pairs = list(zip(self.current_orig_lines, self.current_trans_lines))
+                self.db.add_batch_tm_entries(pairs, context_file=item["filename"])
+
 
             # 3. Update Status Dropdown & Tree in-place
             icon, label_text, _ = StatusTracker.get_display_info(stat, diffs, total, is_manual=is_manual)
@@ -1594,52 +1625,90 @@ class ClassicDATStudioApp(tk.Tk):
                 tot_lines = len(self.current_orig_lines)
                 new_terms_recorded: List[str] = []
 
-                # Load glossary terminology block for consistent translations
-                glossary_block = ""
-                try:
-                    glossary_block = self.db.get_glossary_prompt_block()
-                except Exception:
-                    pass
+                # 1. Check Translation Memory (TM) for 100% exact matches (min_words=3)
+                pre_filled = [None] * tot_lines
+                untranslated_orig_lines = []
+                untranslated_indices = []
+                tm_hits = 0
 
-                def on_new_terms_found(terms: List[Dict[str, str]]):
-                    for t in terms:
-                        en = t.get("term_en")
-                        id_val = t.get("term_id")
-                        cat = t.get("category", "game_term")
-                        notes = t.get("notes", "Otomatis dipelajari AI saat menerjemahkan")
-                        if en and id_val:
-                            try:
-                                self.db.add_glossary_term(en, id_val, cat, notes)
-                                if en not in new_terms_recorded:
-                                    new_terms_recorded.append(en)
-                            except Exception:
-                                pass
-                    if new_terms_recorded:
-                        log.info(f"Auto-Glossary: AI menemukan dan mencatat {len(new_terms_recorded)} istilah baru: {', '.join(new_terms_recorded[-5:])}")
+                for i, orig_text in enumerate(self.current_orig_lines):
+                    tm_match = self.db.get_exact_tm_match(orig_text, min_words=3)
+                    if tm_match:
+                        pre_filled[i] = tm_match
+                        tm_hits += 1
+                    else:
+                        untranslated_orig_lines.append(orig_text)
+                        untranslated_indices.append(i)
 
-                def on_progress(cur: int, tot: int):
-                    self.after(0, lambda c=cur, t=tot: self.info_status_lbl.config(
-                        text=f"Menerjemahkan dengan AI ({self.ai.model}): {c}/{t} baris...",
-                        foreground="#007ACC"
-                    ))
-                    self.after(0, lambda c=cur, t=tot: self.ai_btn.config(
-                        text=f"{Icons.SYNC} {c}/{t}..."
-                    ))
+                if tm_hits > 0:
+                    log.info(f"Translation Memory (TM) resolved {tm_hits}/{tot_lines} lines instantly (0 API tokens).")
 
-                result = self.ai.translate_lines(
-                    self.current_orig_lines, 
-                    target_lang="Indonesian",
-                    progress_callback=on_progress,
-                    glossary_block=glossary_block,
-                    on_new_terms=on_new_terms_found,
-                    get_fresh_glossary_block=lambda: self.db.get_glossary_prompt_block(),
-                    max_workers=3
-                )
-                log.info(f"AI translation finished in {time.time()-t0:.2f}s with {len(result)} lines. New terms found: {len(new_terms_recorded)}")
+                if not untranslated_orig_lines:
+                    result = pre_filled
+                else:
+                    # Load glossary terminology block for consistent translations
+                    glossary_block = ""
+                    try:
+                        glossary_block = self.db.get_glossary_prompt_block()
+                    except Exception:
+                        pass
+
+                    # Fetch contextual TM reference suggestions for AI
+                    tm_prompt = ""
+                    try:
+                        tm_prompt = self.db.get_tm_prompt_block(untranslated_orig_lines, max_suggestions=10)
+                    except Exception:
+                        pass
+
+                    combined_prompt = (glossary_block + "\n\n" + tm_prompt).strip()
+
+                    def on_new_terms_found(terms: List[Dict[str, str]]):
+                        for t in terms:
+                            en = t.get("term_en")
+                            id_val = t.get("term_id")
+                            cat = t.get("category", "game_term")
+                            notes = t.get("notes", "Otomatis dipelajari AI saat menerjemahkan")
+                            if en and id_val:
+                                try:
+                                    self.db.add_glossary_term(en, id_val, cat, notes)
+                                    if en not in new_terms_recorded:
+                                        new_terms_recorded.append(en)
+                                except Exception:
+                                    pass
+                        if new_terms_recorded:
+                            log.info(f"Auto-Glossary: AI menemukan dan mencatat {len(new_terms_recorded)} istilah baru: {', '.join(new_terms_recorded[-5:])}")
+
+                    def on_progress(cur: int, tot: int):
+                        total_progress = tm_hits + cur
+                        self.after(0, lambda c=total_progress, t=tot_lines: self.info_status_lbl.config(
+                            text=f"Menerjemahkan dengan AI ({self.ai.model}): {c}/{t} baris... (TM: {tm_hits})",
+                            foreground="#007ACC"
+                        ))
+                        self.after(0, lambda c=total_progress, t=tot_lines: self.ai_btn.config(
+                            text=f"{Icons.SYNC} {c}/{t}..."
+                        ))
+
+                    ai_results = self.ai.translate_lines(
+                        untranslated_orig_lines, 
+                        target_lang="Indonesian",
+                        progress_callback=on_progress,
+                        glossary_block=combined_prompt,
+                        on_new_terms=on_new_terms_found,
+                        get_fresh_glossary_block=lambda: self.db.get_glossary_prompt_block(),
+                        max_workers=3
+                    )
+
+                    for sub_i, res_l in enumerate(ai_results):
+                        real_i = untranslated_indices[sub_i]
+                        pre_filled[real_i] = TagGuard.sanitize_line(self.current_orig_lines[real_i], res_l)
+
+                    result = pre_filled
+
+                log.info(f"AI/TM translation finished in {time.time()-t0:.2f}s with {len(result)} lines (TM hits: {tm_hits}, New terms: {len(new_terms_recorded)})")
                 def on_success():
                     self.ai_btn.config(state=tk.NORMAL, text=f"{Icons.AI_SPARKLE} Translate AI")
 
-                    # Identify diffs between current translations and new AI suggestions
+                    # Identify diffs between current translations and new AI/TM suggestions
                     diffs_found: Dict[int, str] = {}
                     for i, new_line in enumerate(result):
                         cur_line = self.current_trans_lines[i] if i < len(self.current_trans_lines) else ""
@@ -1648,12 +1717,12 @@ class ClassicDATStudioApp(tk.Tk):
 
                     if not diffs_found:
                         self.info_status_lbl.config(
-                            text="AI selesai: Semua baris sudah sesuai, tidak ada perubahan baru.", 
+                            text="AI/TM selesai: Semua baris sudah sesuai, tidak ada perubahan baru.", 
                             foreground="#007ACC"
                         )
                         messagebox.showinfo(
-                            "AI Translate Selesai", 
-                            "Tidak ada baris yang berubah. Hasil terjemahan AI sama persis dengan terjemahan saat ini."
+                            "AI/TM Translate Selesai", 
+                            "Tidak ada baris yang berubah. Hasil terjemahan sama persis dengan terjemahan saat ini."
                         )
                         return
 
@@ -1661,8 +1730,9 @@ class ClassicDATStudioApp(tk.Tk):
                     self.update_table_display()
                     self.update_review_bar()
                     extra_terms = f" ({len(new_terms_recorded)} kosakata baru dicatat ke Kamus)" if new_terms_recorded else ""
+                    tm_info = f" ({tm_hits} baris via TM)" if tm_hits else ""
                     self.info_status_lbl.config(
-                        text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{extra_terms} (klik {Icons.ACCEPT} per baris atau Accept All)", 
+                        text=f"{Icons.SEARCH} {len(self.pending_ai_diffs)} baris hasil AI Translate siap di-review{tm_info}{extra_terms} (klik {Icons.ACCEPT} per baris atau Accept All)", 
                         foreground="#155724"
                     )
                 self.after(0, on_success)
@@ -1676,6 +1746,47 @@ class ClassicDATStudioApp(tk.Tk):
                 self.after(0, on_fail)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def open_batch_translate_dialog(self):
+        """Opens the Batch Translation dialog for bulk translation across folders."""
+        from gui.dialogs.batch_translate_dialog import BatchTranslateDialog
+        dialog = BatchTranslateDialog(self, self)
+
+    def auto_fix_all_tags(self):
+        """Scans current file and automatically repairs any broken, missing, or malformed tags/tokens."""
+        if self.current_file_index < 0 or not self.current_orig_lines or not self.current_trans_lines:
+            return
+
+        fixed_count = 0
+        new_trans = list(self.current_trans_lines)
+        for i in range(min(len(self.current_orig_lines), len(new_trans))):
+            orig = self.current_orig_lines[i]
+            trans = new_trans[i]
+            diag = TagGuard.validate_line_diagnostics(orig, trans)
+            if diag["can_auto_fix"]:
+                new_trans[i] = diag["fixed_text"]
+                fixed_count += 1
+
+        if fixed_count > 0:
+            self.push_undo_state()
+            self.current_trans_lines = new_trans
+            self.update_table_display()
+            self.auto_save()
+            self.info_status_lbl.config(
+                text=f"{Icons.REPAIR} Auto-Fix: Berhasil memperbaiki tag pada {fixed_count} baris dialog!",
+                foreground="#2E7D32"
+            )
+            messagebox.showinfo(
+                "Auto-Fix Tags Selesai",
+                f"Berhasil memperbaiki format tag dan kontrol pada {fixed_count} baris dialog!\n"
+                "Perubahan telah disimpan aman ke database."
+            )
+        else:
+            messagebox.showinfo(
+                "Semua Tag Sesuai",
+                "Semua tag dialog dan kontrol (\\[VAR\\], \\[WAIT\\], \\n, \\r, \\c) sudah 100% sesuai dengan teks aslinya."
+            )
+
 
     def accept_single_ai_diff(self, line_idx: int):
         if line_idx not in self.pending_ai_diffs:

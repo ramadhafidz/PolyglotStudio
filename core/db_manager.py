@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import hashlib
+import re
 from typing import Dict, Any, List, Optional, Tuple
 from core.logger import log
 from core.status_tracker import StatusTracker
@@ -92,8 +94,24 @@ class ProjectDB:
             )
             """)
 
+            # Translation Memory (TM) Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS translation_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_text TEXT NOT NULL,
+                target_text TEXT NOT NULL,
+                source_hash TEXT UNIQUE NOT NULL,
+                context_file TEXT DEFAULT '',
+                word_count INTEGER DEFAULT 0,
+                usage_count INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tm_source_hash ON translation_memory(source_hash)")
+
             # Set version
-            cursor.execute("INSERT OR IGNORE INTO project_meta (key, value) VALUES ('schema_version', '1.1')")
+            cursor.execute("INSERT OR IGNORE INTO project_meta (key, value) VALUES ('schema_version', '1.2')")
             conn.commit()
             log.info(f"Project SQLite database initialized at {self.db_path}")
 
@@ -443,3 +461,149 @@ class ProjectDB:
             )
             conn.commit()
             log.info(f"Berhasil menambahkan {len(defaults)} entri glosarium default Pokémon SV ke database.")
+
+    # ----------------- Translation Memory (TM) Methods -----------------
+    @staticmethod
+    def _compute_text_hash(text: str) -> str:
+        return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _count_words(text: str) -> int:
+        clean = re.sub(r'\[.*?\]|\\n|\\r|\\c', ' ', text)
+        return len(clean.strip().split())
+
+    def add_tm_entry(self, source_text: str, target_text: str, context_file: str = "") -> bool:
+        """
+        Records a translated sentence pair into Translation Memory.
+        Filters out empty lines, identical lines, or pure control-token strings.
+        """
+        s_clean = source_text.strip()
+        t_clean = target_text.strip()
+        if not s_clean or not t_clean or s_clean == t_clean:
+            return False
+
+        words = self._count_words(s_clean)
+        if words == 0:
+            return False
+
+        s_hash = self._compute_text_hash(s_clean)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            INSERT INTO translation_memory (source_text, target_text, source_hash, context_file, word_count, usage_count)
+            VALUES (?, ?, ?, ?, ?, 1)
+            ON CONFLICT(source_hash) DO UPDATE SET
+                target_text = excluded.target_text,
+                context_file = CASE WHEN excluded.context_file != '' THEN excluded.context_file ELSE translation_memory.context_file END,
+                usage_count = translation_memory.usage_count + 1,
+                updated_at = CURRENT_TIMESTAMP
+            """, (s_clean, t_clean, s_hash, context_file, words))
+            conn.commit()
+            return True
+
+    def add_batch_tm_entries(self, pairs: List[Tuple[str, str]], context_file: str = "") -> int:
+        """
+        Records multiple translation pairs into TM in a single fast transaction.
+        """
+        if not pairs:
+            return 0
+
+        valid_entries = []
+        for s, t in pairs:
+            s_clean = s.strip()
+            t_clean = t.strip()
+            if not s_clean or not t_clean or s_clean == t_clean:
+                continue
+            words = self._count_words(s_clean)
+            if words == 0:
+                continue
+            s_hash = self._compute_text_hash(s_clean)
+            valid_entries.append((s_clean, t_clean, s_hash, context_file, words))
+
+        if not valid_entries:
+            return 0
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany("""
+            INSERT INTO translation_memory (source_text, target_text, source_hash, context_file, word_count, usage_count)
+            VALUES (?, ?, ?, ?, ?, 1)
+            ON CONFLICT(source_hash) DO UPDATE SET
+                target_text = excluded.target_text,
+                usage_count = translation_memory.usage_count + 1,
+                updated_at = CURRENT_TIMESTAMP
+            """, valid_entries)
+            conn.commit()
+            return len(valid_entries)
+
+    def get_exact_tm_match(self, source_text: str, min_words: int = 3) -> Optional[str]:
+        """
+        Checks for a 100% exact match in Translation Memory.
+        Safety Rule: Only returns match if word count >= min_words OR it is an exact safe UI token (e.g. 'Yes\nNo').
+        Protects ambiguous single words like 'Run', 'Fire', 'Right' from being wrongly replaced.
+        """
+        s_clean = source_text.strip()
+        if not s_clean:
+            return None
+
+        words = self._count_words(s_clean)
+        is_safe_short = s_clean.lower() in ("yes\nno", "yes", "no", "ok", "cancel")
+        if words < min_words and not is_safe_short:
+            return None
+
+        s_hash = self._compute_text_hash(s_clean)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT target_text FROM translation_memory WHERE source_hash = ?", (s_hash,))
+            row = cursor.fetchone()
+            if row:
+                return row["target_text"]
+            return None
+
+    def get_tm_prompt_block(self, source_lines: List[str], max_suggestions: int = 15) -> str:
+        """
+        Finds matching TM entries for the given source lines and formats them as contextual references for AI.
+        """
+        if not source_lines:
+            return ""
+
+        hashes = [self._compute_text_hash(l) for l in source_lines if l.strip()]
+        if not hashes:
+            return ""
+
+        unique_hashes = list(set(hashes))[:max_suggestions * 2]
+        placeholders = ",".join(["?"] * len(unique_hashes))
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"""
+            SELECT source_text, target_text FROM translation_memory 
+            WHERE source_hash IN ({placeholders})
+            LIMIT ?
+            """, (*unique_hashes, max_suggestions))
+            rows = cursor.fetchall()
+
+        if not rows:
+            return ""
+
+        prompt_lines = [
+            "REFERENSI MEMORI TERJEMAHAN (Translation Memory):",
+            "Gunakan padanan berikut HANYA JIKA konteks dialognya sesuai (jangan paksakan jika konteks berbeda):"
+        ]
+        for row in rows:
+            s_short = row["source_text"].replace("\n", " ").strip()
+            t_short = row["target_text"].replace("\n", " ").strip()
+            prompt_lines.append(f'- "{s_short}" → "{t_short}"')
+        return "\n".join(prompt_lines)
+
+    def get_tm_stats(self) -> Dict[str, int]:
+        """Returns total entries and usage statistics in Translation Memory."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as total_entries, COALESCE(SUM(usage_count), 0) as total_uses FROM translation_memory")
+            row = cursor.fetchone()
+            return {
+                "total_entries": row["total_entries"] if row else 0,
+                "total_uses": row["total_uses"] if row else 0
+            }
+
