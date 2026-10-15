@@ -187,7 +187,8 @@ class PokemonDatCodec(BaseTextCodec):
 
         return text[i], i+1
 
-    def write_file(self, file_path: str, lines: List[str]) -> bool:
+    def encode_lines(self, lines: List[str]) -> bytes:
+        """Encodes dialogue lines into binary .dat Game Freak encrypted payload."""
         text_sections = 1
         line_count = len(lines)
         base_key = 0x7C89
@@ -298,10 +299,15 @@ class PokemonDatCodec(BaseTextCodec):
         for data in line_data:
             result.extend(data)
 
+        return bytes(result)
+
+    def write_file(self, file_path: str, lines: List[str]) -> bool:
+        data = self.encode_lines(lines)
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
         with open(file_path, 'wb') as f:
-            f.write(result)
+            f.write(data)
         return True
+
 
     def export_to_txt(self, source_path: str, target_txt_path: str) -> bool:
         lines = self.read_file(source_path)

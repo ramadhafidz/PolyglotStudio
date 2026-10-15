@@ -235,8 +235,9 @@ class ClassicDATStudioApp(tk.Tk):
 
 
         # Deploy Mod Button
-        self.deploy_btn = ttk.Button(top_frame, text=f"{Icons.DEPLOY} Deploy to Eden", command=self.deploy_to_eden, state=tk.NORMAL)
+        self.deploy_btn = ttk.Button(top_frame, text=f"{Icons.DEPLOY} Deploy Mod", command=self.deploy_to_eden, state=tk.NORMAL)
         self.deploy_btn.pack(side=tk.LEFT, padx=2)
+
 
         # Mod Manager Button
         ttk.Button(top_frame, text=f"{Icons.PACKAGE} Mod Manager", command=self.open_mod_manager).pack(side=tk.LEFT, padx=2)
@@ -1956,75 +1957,12 @@ class ClassicDATStudioApp(tk.Tk):
         )
         self.table_context_menu.post(event.x_root, event.y_root)
 
-    # ----------------- Deploy to Eden -----------------
+    # ----------------- 1-Click LayeredFS Mod Deployer -----------------
     def deploy_to_eden(self):
-        title_id = self.settings.get("active_game_id", "0100A3D008C5C000")
-        load_path = self.settings.get("eden_load_path")
-        mod_name = "[ID] Pokemon Scarlet Bahasa Indonesia"
+        """Opens the 1-Click LayeredFS Mod Deployer dialog."""
+        from gui.dialogs.deploy_dialog import LayeredFSDeployDialog
+        dialog = LayeredFSDeployDialog(self, self)
 
-        mod_root = os.path.join(load_path, title_id, mod_name)
-        target_dir = os.path.join(mod_root, "romfs", "message", "dat", "English")
-        os.makedirs(target_dir, exist_ok=True)
-
-        english_dir = r"D:\Environtment\utilities\trinity\output\message\dat\English"
-        log.info(f"Deploying mod files from SQLite and workspace to {target_dir}...")
-        count_text = 0
-        count_assets = 0
-        try:
-            # 1. Deploy .dat dialogue messages directly from SQLite database
-            deployed_filenames = set()
-            modified_db_files = self.db.get_modified_files()
-
-            for mfile in modified_db_files:
-                fname = mfile["filename"]
-                if mfile.get("asset_type") == "text" or fname.endswith(".dat"):
-                    lines = self.db.get_file_lines(fname)
-                    if lines:
-                        rel = mfile["rel_path"]
-                        dest = os.path.join(target_dir, rel)
-                        os.makedirs(os.path.dirname(dest), exist_ok=True)
-                        self.codec.write_file(dest, lines)
-                        deployed_filenames.add(fname)
-                        count_text += 1
-
-            # 2. Deploy any additional disk files from legacy folder if present
-            if os.path.exists(english_dir):
-                for root, _, files in os.walk(english_dir):
-                    for f in files:
-                        if f.endswith('.dat') and f not in deployed_filenames:
-                            src = os.path.join(root, f)
-                            rel = os.path.relpath(src, english_dir)
-                            dest = os.path.join(target_dir, rel)
-                            os.makedirs(os.path.dirname(dest), exist_ok=True)
-                            with open(src, 'rb') as r, open(dest, 'wb') as w:
-                                w.write(r.read())
-                            count_text += 1
-
-            # 2. Deploy modified visual & sound assets from mod_assets_dir
-            if hasattr(self, 'mod_assets_dir') and os.path.exists(self.mod_assets_dir):
-                import shutil
-                target_romfs = os.path.join(mod_root, "romfs")
-                for root, _, files in os.walk(self.mod_assets_dir):
-                    for f in files:
-                        src = os.path.join(root, f)
-                        rel = os.path.relpath(src, self.mod_assets_dir)
-                        dest = os.path.join(target_romfs, rel)
-                        os.makedirs(os.path.dirname(dest), exist_ok=True)
-                        shutil.copy2(src, dest)
-                        count_assets += 1
-
-            summary_msg = f"{count_text} file .dat"
-            if count_assets > 0:
-                summary_msg += f" dan {count_assets} file aset grafis"
-
-            log.info(f"Mod deployed successfully: {summary_msg} copied.")
-            messagebox.showinfo(
-                "Deploy Berhasil!", 
-                f"Berhasil men-deploy {summary_msg} ke folder mod Eden:\n{mod_root}"
-            )
-        except Exception as e:
-            log.error(f"Deploy to Eden failed: {e}", exc_info=True)
-            messagebox.showerror("Deploy Error", str(e))
 
     # ----------------- Mod Manager Popup -----------------
     def open_mod_manager(self):
