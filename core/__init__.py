@@ -1,0 +1,1 @@
+# SwitchModStudio Core Package
