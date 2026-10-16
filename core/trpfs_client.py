@@ -143,8 +143,14 @@ class TrpfsClient:
             log.error(f"Failed to extract {target}: {response}")
             return None
         except Exception as e:
-            log.error(f"Exception extracting file {target}: {e}", exc_info=True)
+            log.error(f"Exception extracting file bytes for {target}: {e}", exc_info=True)
             return None
+
+    def get_file(self, target: str) -> Optional[bytes]:
+        """
+        Alias for extract_file_bytes for convenience and backward compatibility.
+        """
+        return self.extract_file_bytes(target)
 
     def extract_file_to_disk(self, target: str, out_path: str) -> bool:
         """

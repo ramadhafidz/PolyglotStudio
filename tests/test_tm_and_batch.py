@@ -100,6 +100,124 @@ class TestTranslationMemoryAndQA(unittest.TestCase):
         self.assertTrue(len(diag["warnings"]) > 0)
         self.assertIn("overflow", diag["warnings"][0].lower())
 
+    def test_trpfs_client_get_file_alias(self):
+        """Verify TrpfsClient get_file alias routes to extract_file_bytes."""
+        from core.trpfs_client import TrpfsClient
+        client = TrpfsClient()
+        with patch.object(client, "extract_file_bytes", return_value=b"virtual_bytes") as mock_extract:
+            res = client.get_file("message/dat/English/tokkun.dat")
+            self.assertEqual(res, b"virtual_bytes")
+            mock_extract.assert_called_once_with("message/dat/English/tokkun.dat")
+
+    def test_db_upsert_file_status_alias(self):
+        """Verify db.upsert_file_status alias saves translations accurately."""
+        origs = ["Hello", "World"]
+        trans = ["Halo", "Dunia"]
+        eff, diffs, tot, manual = self.db.upsert_file_status(
+            filename="tokkun.dat",
+            rel_path="script/tokkun.dat",
+            orig_lines=origs,
+            trans_lines=trans
+        )
+        self.assertEqual(eff, "completed")
+        self.assertEqual(diffs, 2)
+        self.assertEqual(tot, 2)
+        saved = self.db.get_file_lines("tokkun.dat")
+        self.assertEqual(saved, trans)
+
+
+class TestBatchTranslateDialog(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import tkinter as tk
+        cls.root = tk.Tk()
+        cls.root.withdraw()
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.root.destroy()
+        except Exception:
+            pass
+
+    def setUp(self):
+        from formats.pokemon_dat import PokemonDatCodec
+        from gui.dialogs.batch_translate_dialog import BatchTranslateDialog
+
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "test_batch.db")
+        self.db = ProjectDB(self.db_path)
+        self.codec = PokemonDatCodec()
+
+        # Mock app
+        self.app = MagicMock()
+        self.app.db = self.db
+        self.app.codec = self.codec
+        self.app.workspace_dir = self.temp_dir.name
+        self.app.file_items = []
+        self.app.current_file_index = -1
+        self.app.trpfs_client = MagicMock()
+
+        # Mock AI
+        self.ai = MagicMock()
+        self.ai.model = "gemini-test"
+        self.ai.endpoint = "https://example.com"
+        self.ai.api_key = "test_key"
+        self.ai.translate_lines.side_effect = lambda lines, **kwargs: [f"[ID] {l}" for l in lines]
+        self.app.ai = self.ai
+
+        self.dialog = BatchTranslateDialog(self.root, self.app)
+        self.dialog.withdraw()
+
+    def tearDown(self):
+        try:
+            self.dialog.destroy()
+        except Exception:
+            pass
+        self.temp_dir.cleanup()
+
+    def test_batch_worker_with_virtual_file(self):
+        """Verify _batch_worker loads virtual RomFS files, skips pure tags, calls AI, and writes to disk and SQLite."""
+        test_lines = ["Welcome Trainer!", "[~1]", "Pick a Pokémon."]
+        raw_bytes = self.codec.encode_lines(test_lines)
+        self.app.trpfs_client.extract_file_bytes.return_value = raw_bytes
+
+        item = {
+            "filename": "tokkun.dat",
+            "rel_path": "message/dat/English/tokkun.dat",
+            "romfs_path": "message/dat/English/tokkun.dat",
+            "is_virtual": True,
+            "status": "untranslated"
+        }
+        self.app.file_items = [item]
+
+        # Run worker directly
+        self.dialog._batch_worker([item])
+
+        # 1. Verify extract_file_bytes was called with romfs_path
+        self.app.trpfs_client.extract_file_bytes.assert_called_with("message/dat/English/tokkun.dat")
+
+        # 2. Verify AI was called ONLY for non-tag non-empty lines
+        called_lines = self.ai.translate_lines.call_args[0][0]
+        self.assertIn("Welcome Trainer!", called_lines)
+        self.assertIn("Pick a Pokémon.", called_lines)
+        self.assertNotIn("[~1]", called_lines, "Tag [~1] must not be sent to AI")
+
+        # 3. Verify saved in SQLite
+        db_lines = self.db.get_file_lines("tokkun.dat")
+        self.assertIsNotNone(db_lines)
+        self.assertEqual(db_lines[0], "[ID] Welcome Trainer!")
+        self.assertEqual(db_lines[1], "[~1]")
+        self.assertEqual(db_lines[2], "[ID] Pick a Pokémon.")
+
+        # 4. Verify item status updated
+        self.assertEqual(item["status"], "completed")
+
+        # 5. Verify compiled .dat written to workspace/modified/...
+        mod_file = os.path.join(self.db.project_dir, "modified", "message/dat/English", "tokkun.dat")
+        self.assertTrue(os.path.exists(mod_file))
+
 
 if __name__ == "__main__":
     unittest.main()
+

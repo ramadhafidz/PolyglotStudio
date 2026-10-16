@@ -288,44 +288,78 @@ class BatchTranslateDialog(tk.Toplevel):
             ))
 
             try:
-                # 1. Load lines
-                raw_bytes = None
-                if item.get("is_virtual") and self.app.trpfs_client:
-                    raw_bytes = self.app.trpfs_client.get_file(item["romfs_path"])
-                elif os.path.exists(item.get("file_path", "")):
-                    with open(item["file_path"], "rb") as f_in:
-                        raw_bytes = f_in.read()
+                # 1. Load lines (prefer SQLite saved data to preserve existing progress)
+                db_data = self.db.get_file_full_data(fname)
+                if db_data is not None:
+                    db_orig, db_trans = db_data
+                    orig_lines = list(db_orig)
+                    trans_lines = list(db_trans)
+                else:
+                    raw_bytes = None
+                    if item.get("is_virtual") and getattr(self.app, "trpfs_client", None):
+                        vtarget = item.get("romfs_path") or item.get("rel_path") or fname
+                        raw_bytes = self.app.trpfs_client.extract_file_bytes(vtarget)
+                    else:
+                        file_p = item.get("dat_path") or item.get("file_path") or item.get("filepath", "")
+                        if file_p and os.path.exists(file_p):
+                            with open(file_p, "rb") as f_in:
+                                raw_bytes = f_in.read()
 
-                if not raw_bytes:
-                    self.log_msg(f"[{idx}/{tot_files}] Failed to read file data: {fname}")
-                    continue
+                    if not raw_bytes:
+                        self.log_msg(f"[{idx}/{tot_files}] Failed to read file data: {fname}")
+                        continue
 
-                orig_lines = self.app.codec.decode_bytes(raw_bytes)
-                if not orig_lines:
-                    self.log_msg(f"[{idx}/{tot_files}] Empty file: {fname}")
-                    continue
+                    orig_lines = self.app.codec.decode_bytes(raw_bytes)
+                    if not orig_lines:
+                        self.log_msg(f"[{idx}/{tot_files}] Empty file: {fname}")
+                        continue
+                    trans_lines = list(orig_lines)
 
-                # 2. Check Translation Memory (TM) exact matches
-                trans_lines = [""] * len(orig_lines)
+                # Ensure trans_lines matches orig_lines length
+                while len(trans_lines) < len(orig_lines):
+                    trans_lines.append(orig_lines[len(trans_lines)])
+
+                # 2. Check Translation Memory (TM) exact matches & identify untranslated lines
                 untranslated_indices = []
                 file_tm_hits = 0
 
                 for line_i, o_line in enumerate(orig_lines):
+                    o_stripped = o_line.strip()
+                    # Skip empty lines or pure system/control tags (e.g. "[~1]", "[~2]")
+                    if not o_stripped or o_stripped.startswith("[~"):
+                        if not trans_lines[line_i]:
+                            trans_lines[line_i] = o_line
+                        continue
+
+                    # If line is already translated (i.e. differs from orig and not empty)
+                    if trans_lines[line_i] and trans_lines[line_i] != o_line and trans_lines[line_i].strip():
+                        continue
+
+                    # Check Translation Memory (TM) exact matches
                     if use_tm:
-                        tm_match = self.db.get_exact_tm_match(o_line, min_words=3)
+                        tm_match = self.db.get_exact_tm_match(o_line, min_words=2)
                         if tm_match:
                             trans_lines[line_i] = tm_match
                             file_tm_hits += 1
                             continue
+
                     untranslated_indices.append(line_i)
 
                 tm_lines_count += file_tm_hits
 
-                # 3. Call AI for remaining lines
+                # 3. Call AI for remaining untranslated lines
                 if untranslated_indices:
                     needed_lines = [orig_lines[i] for i in untranslated_indices]
-                    glossary_block = self.db.get_glossary_prompt_block()
-                    tm_prompt = self.db.get_tm_prompt_block(needed_lines, max_suggestions=10)
+                    glossary_block = ""
+                    try:
+                        glossary_block = self.db.get_glossary_prompt_block()
+                    except Exception:
+                        pass
+                    tm_prompt = ""
+                    try:
+                        tm_prompt = self.db.get_tm_prompt_block(needed_lines, max_suggestions=10)
+                    except Exception:
+                        pass
                     combined_prompt = (glossary_block + "\n\n" + tm_prompt).strip()
 
                     ai_results = self.ai.translate_lines(
@@ -345,33 +379,55 @@ class BatchTranslateDialog(tk.Toplevel):
 
                 # 4. Auto-learn pairs into Translation Memory
                 pairs = list(zip(orig_lines, trans_lines))
-                self.db.add_batch_tm_entries(pairs, context_file=fname)
+                try:
+                    self.db.add_batch_tm_entries(pairs, context_file=fname)
+                except Exception as tm_err:
+                    log.warning(f"Failed to record TM entries for {fname}: {tm_err}")
 
                 # 5. Auto-save to SQLite and .dat
                 if auto_save:
-                    compiled_bytes = self.app.codec.encode_lines(trans_lines)
-                    out_path = os.path.join(self.app.workspace_dir, "translations", fname)
-                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                    with open(out_path, "wb") as f_out:
-                        f_out.write(compiled_bytes)
+                    # Write compiled .dat to disk
+                    if not item.get("is_virtual") and os.path.isabs(item.get("dat_path", "")):
+                        out_path = item["dat_path"]
+                    else:
+                        mod_dir = os.path.join(self.db.project_dir, "modified", os.path.dirname(rel_p))
+                        os.makedirs(mod_dir, exist_ok=True)
+                        out_path = os.path.join(mod_dir, fname)
+                        item["dat_path"] = out_path
 
-                    diffs, total = StatusTracker.count_diffs(orig_lines, trans_lines)
-                    self.db.upsert_file_status(
+                    try:
+                        self.app.codec.write_file(out_path, trans_lines)
+                    except Exception as write_err:
+                        log.warning(f"Failed to write compiled .dat for {fname}: {write_err}")
+
+                    # Atomically save translation into SQLite
+                    eff_status, diffs, total, is_manual = self.db.save_file_translation(
                         filename=fname,
                         rel_path=rel_p,
-                        total_lines=total,
-                        diffs=diffs,
-                        status="completed",
-                        asset_type="text",
                         orig_lines=orig_lines,
                         trans_lines=trans_lines
                     )
-                    item["status"] = "completed"
+                    item["status"] = eff_status
                     item["diffs"] = diffs
                     item["total"] = total
+                    item["is_manual"] = is_manual
+
+                    # Update main UI file tree item & status summary in real-time
+                    try:
+                        if item in self.app.file_items:
+                            main_idx = self.app.file_items.index(item)
+                            self.after(0, lambda mi=main_idx: (
+                                self.app.update_tree_item_display(mi),
+                                self.app.update_progress_summary()
+                            ))
+                            if getattr(self.app, "current_file_index", -1) == main_idx:
+                                self.after(0, lambda mi=main_idx: self.app.load_file(mi))
+                    except Exception:
+                        pass
 
                 tm_info = f" (TM: {file_tm_hits} lines)" if file_tm_hits else ""
-                self.log_msg(f"[{idx}/{tot_files}] Completed: {fname} ({len(orig_lines)} lines){tm_info}")
+                ai_info = f", AI: {len(untranslated_indices)} lines" if untranslated_indices else ""
+                self.log_msg(f"[{idx}/{tot_files}] Completed: {fname} ({len(orig_lines)} lines{ai_info}{tm_info})")
 
             except Exception as e:
                 self.log_msg(f"[{idx}/{tot_files}] ERROR on {fname}: {e}")

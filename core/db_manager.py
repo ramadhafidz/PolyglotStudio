@@ -326,6 +326,17 @@ class ProjectDB:
         log.info(f"Database: Saved {filename} ({diffs}/{total} diffs, effective status: {effective_status}, manual: {is_manual})")
         return effective_status, diffs, total, is_manual
 
+    def upsert_file_status(
+        self, 
+        filename: str, 
+        rel_path: str, 
+        orig_lines: List[str], 
+        trans_lines: List[str],
+        **kwargs
+    ) -> Tuple[str, int, int, bool]:
+        """Backward-compatible alias for save_file_translation."""
+        return self.save_file_translation(filename, rel_path, orig_lines, trans_lines)
+
     def search_all_dialogues(self, query: str) -> List[Dict[str, Any]]:
         """
         Global Search across all game dialogue lines in the database.
