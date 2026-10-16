@@ -450,38 +450,151 @@ class ProjectDB:
 
     def seed_default_glossary(self) -> None:
         """
-        Mengisi default istilah Pokémon SV jika tabel glosarium masih kosong.
+        Mengisi default istilah Pokémon SV jika tabel glosarium masih kosong atau menambahkan istilah baru yang belum terdaftar.
+        Menggunakan INSERT OR IGNORE agar tidak menimpa kustomisasi pengguna yang sudah ada.
         """
+        defaults = [
+            # 1. Core Pokémon Terms
+            ("Vending Machine", "Vending Machine", "game_term", ""),
+            ("TM Machine", "TM Machine", "game_term", ""),
+            ("Poké Ball", "Poké Ball", "pokemon", ""),
+            ("Pokémon Center", "Pokémon Center", "pokemon", ""),
+            ("Pokédex", "Pokédex", "pokemon", ""),
+            ("Gym", "Gym", "pokemon", ""),
+            ("Gym Leader", "Gym Leader", "pokemon", ""),
+            ("Elite Four", "Elite Four", "pokemon", ""),
+            ("Champion", "Champion", "pokemon", ""),
+            ("Trainer", "Trainer", "pokemon", ""),
+            ("Team Star", "Team Star", "pokemon", ""),
+            ("Area Zero", "Area Zero", "location", ""),
+            ("Tera Type", "Tera Type", "game_term", ""),
+            ("Terastal", "Terastal", "game_term", ""),
+            ("Tera Orb", "Tera Orb", "game_term", ""),
+
+            # 2. Weathers (Diterjemahkan ke Bahasa Indonesia)
+            ("Rain", "Hujan", "game_term", "Kondisi cuaca hujan"),
+            ("Heavy Rain", "Hujan Lebat", "game_term", "Kondisi cuaca hujan lebat (Kyogre / Primordial Sea)"),
+            ("Harsh Sunlight", "Sinar Matahari Terik", "game_term", "Kondisi cuaca sinar matahari terik"),
+            ("Extremely Harsh Sunlight", "Sinar Matahari Terik Ekstrem", "game_term", "Kondisi cuaca sinar matahari terik ekstrem (Groudon / Desolate Land)"),
+            ("Strong Sunlight", "Sinar Matahari Terik", "game_term", "Kondisi cuaca sinar matahari terik"),
+            ("Sandstorm", "Badai Pasir", "game_term", "Kondisi cuaca badai pasir"),
+            ("Snow", "Salju", "game_term", "Kondisi cuaca salju"),
+            ("Fog", "Kabut", "game_term", "Kondisi cuaca kabut"),
+            ("Strong Winds", "Angin Kencang", "game_term", "Kondisi cuaca angin kencang (Rayquaza / Delta Stream)"),
+
+            # 3. Terrains (Tetap Bahasa Inggris)
+            ("Electric Terrain", "Electric Terrain", "game_term", "Kondisi medan Electric Terrain / nama jurus"),
+            ("Grassy Terrain", "Grassy Terrain", "game_term", "Kondisi medan Grassy Terrain / nama jurus"),
+            ("Misty Terrain", "Misty Terrain", "game_term", "Kondisi medan Misty Terrain / nama jurus"),
+            ("Psychic Terrain", "Psychic Terrain", "game_term", "Kondisi medan Psychic Terrain / nama jurus"),
+
+            # 4. Rooms & Field Effects (Tetap Bahasa Inggris)
+            ("Trick Room", "Trick Room", "game_term", "Efek ruangan jurus Trick Room"),
+            ("Magic Room", "Magic Room", "game_term", "Efek ruangan jurus Magic Room"),
+            ("Wonder Room", "Wonder Room", "game_term", "Efek ruangan jurus Wonder Room"),
+            ("Tailwind", "Tailwind", "game_term", "Efek angin buritan jurus Tailwind"),
+            ("Gravity", "Gravity", "game_term", "Efek gravitasi jurus Gravity"),
+            ("Stealth Rock", "Stealth Rock", "game_term", "Entry hazard Stealth Rock"),
+            ("Sticky Web", "Sticky Web", "game_term", "Entry hazard Sticky Web"),
+            ("Spikes", "Spikes", "game_term", "Entry hazard Spikes"),
+            ("Toxic Spikes", "Toxic Spikes", "game_term", "Entry hazard Toxic Spikes"),
+            ("Aurora Veil", "Aurora Veil", "game_term", "Efek tirai perlindungan Aurora Veil"),
+            ("Light Screen", "Light Screen", "game_term", "Efek tirai perlindungan Light Screen"),
+            ("Reflect", "Reflect", "game_term", "Efek tirai perlindungan Reflect"),
+            ("Safeguard", "Safeguard", "game_term", "Efek perlindungan status Safeguard"),
+            ("Mist", "Mist", "game_term", "Efek perlindungan penurunan stat Mist"),
+            ("Mud Sport", "Mud Sport", "game_term", "Efek medan Mud Sport"),
+            ("Water Sport", "Water Sport", "game_term", "Efek medan Water Sport"),
+            ("Rainbow", "Pelangi", "game_term", "Efek kombinasi Fire + Water Pledge"),
+            ("Swamp", "Rawa", "game_term", "Efek kombinasi Water + Grass Pledge"),
+            ("Sea of Fire", "Lautan Api", "game_term", "Efek kombinasi Fire + Grass Pledge"),
+
+            # 5. Move Names as Battle States (Tetap Bahasa Inggris)
+            ("Encore", "Encore", "game_term", "Kondisi terkena jurus Encore"),
+            ("Torment", "Torment", "game_term", "Kondisi terkena jurus Torment"),
+            ("Taunt", "Taunt", "game_term", "Kondisi terkena jurus Taunt"),
+            ("Leech Seed", "Leech Seed", "game_term", "Efek jurus Leech Seed"),
+            ("Destiny Bond", "Destiny Bond", "game_term", "Efek ikatan jurus Destiny Bond"),
+            ("Ingrain", "Ingrain", "game_term", "Efek berakar jurus Ingrain"),
+            ("Aqua Ring", "Aqua Ring", "game_term", "Efek lingkaran air jurus Aqua Ring"),
+            ("Curse", "Curse", "game_term", "Kondisi kutukan jurus Curse"),
+            ("Salt Cure", "Salt Cure", "game_term", "Efek pembaluran garam jurus Salt Cure"),
+            ("Octolock", "Octolock", "game_term", "Kondisi kuncian jurus Octolock"),
+            ("Stockpile", "Stockpile", "game_term", "Kondisi penimbunan jurus Stockpile"),
+            ("Imprison", "Imprison", "game_term", "Kondisi kurungan jurus Imprison"),
+            ("Embargo", "Embargo", "game_term", "Kondisi jurus Embargo"),
+            ("Telekinesis", "Telekinesis", "game_term", "Efek jurus Telekinesis"),
+            ("Magnet Rise", "Magnet Rise", "game_term", "Efek mengapung jurus Magnet Rise"),
+            ("Wish", "Wish", "game_term", "Efek harapan jurus Wish"),
+            ("Charge", "Charge", "game_term", "Efek pengisian daya jurus Charge"),
+            ("Bide", "Bide", "game_term", "Kondisi menahan serangan jurus Bide"),
+            ("Outrage", "Outrage", "game_term", "Kondisi mengamuk jurus Outrage"),
+            ("Petal Dance", "Petal Dance", "game_term", "Kondisi tarian kelopak jurus Petal Dance"),
+            ("Uproar", "Uproar", "game_term", "Kondisi keributan jurus Uproar"),
+            ("Autotomize", "Autotomize", "game_term", "Efek jurus Autotomize"),
+            ("Smack Down", "Smack Down", "game_term", "Efek jatuhan jurus Smack Down"),
+            ("Fairy Lock", "Fairy Lock", "game_term", "Kondisi kuncian jurus Fairy Lock"),
+            ("Throat Chop", "Throat Chop", "game_term", "Efek pembungkaman jurus Throat Chop"),
+            ("Laser Focus", "Laser Focus", "game_term", "Efek fokus jurus Laser Focus"),
+            ("Tar Shot", "Tar Shot", "game_term", "Efek lumuran aspal jurus Tar Shot"),
+            ("Raging Fury", "Raging Fury", "game_term", "Kondisi kemarahan jurus Raging Fury"),
+            ("Lock-On", "Lock-On", "game_term", "Efek penguncian sasaran jurus Lock-On"),
+            ("Slow Start", "Slow Start", "game_term", "Ability Slow Start (Regigigas)"),
+            ("G-Max Wildfire", "G-Max Wildfire", "game_term", "Efek jurus G-Max Wildfire"),
+            ("G-Max Volcalith", "G-Max Volcalith", "game_term", "Efek jurus G-Max Volcalith"),
+            ("G-Max Steelsurge", "G-Max Steelsurge", "game_term", "Efek jurus G-Max Steelsurge"),
+            ("G-Max Vine Lash", "G-Max Vine Lash", "game_term", "Efek jurus G-Max Vine Lash"),
+            ("G-Max Cannonade", "G-Max Cannonade", "game_term", "Efek jurus G-Max Cannonade"),
+
+            # 6. Status Conditions (Standar Resmi Pokémon TCG Indonesia)
+            ("Poisoned", "Terkena Racun", "game_term", "Kondisi status racun"),
+            ("Badly Poisoned", "Racun Parah", "game_term", "Kondisi status racun mematikan / parah"),
+            ("Paralyzed", "Lumpuh", "game_term", "Kondisi status kelumpuhan"),
+            ("Burned", "Terbakar", "game_term", "Kondisi status luka bakar"),
+            ("Frostbite", "Radang Dingin", "game_term", "Kondisi status radang dingin"),
+            ("Asleep", "Tidur", "game_term", "Kondisi status tertidur"),
+            ("Drowsy", "Mengantuk", "game_term", "Kondisi status mengantuk"),
+            ("Confusion", "Pusing", "game_term", "Kondisi status kebingungan / pusing"),
+            ("Infatuation", "Terpikat", "game_term", "Kondisi status terpikat lawan"),
+            ("Nightmare", "Mimpi Buruk", "game_term", "Kondisi terkena mimpi buruk"),
+            ("Bound", "Terikat", "game_term", "Kondisi terikat tidak bisa bertukar"),
+
+            # 7. Combat States & Modifiers
+            ("Critical Hit", "Serangan Kritis", "game_term", "Serangan kritikal dengan damage berlipat"),
+            ("Critical Hit Boost", "Peningkatan Serangan Kritis", "game_term", "Peluang serangan kritis meningkat"),
+            ("No Ability", "Tanpa Ability", "game_term", "Efek hilangnya fungsi Ability"),
+            ("Healing Prevented", "Pemulihan Dicegah", "game_term", "Tidak dapat memulihkan HP"),
+            ("Identified", "Teridentifikasi", "game_term", "Dapat diserang jurus yang biasanya tidak mempan"),
+            ("Move Disabled", "Jurus Dinonaktifkan", "game_term", "Jurus tidak dapat digunakan"),
+            ("Can't Escape", "Tidak Bisa Kabur", "game_term", "Tidak dapat melarikan diri atau bertukar"),
+            ("Can’t Escape", "Tidak Bisa Kabur", "game_term", "Tidak dapat melarikan diri atau bertukar"),
+            ("Counting Down", "Hitungan Mundur", "game_term", "Hitungan mundur sebelum pingsan (Perish Song)"),
+            ("Future Attack", "Serangan Masa Depan", "game_term", "Serangan tertunda masa depan (Future Sight/Doom Desire)"),
+            ("Fixated", "Terpaku", "game_term", "Terpaku pada jurus terakhir"),
+            ("Splinters", "Serpihan Runcing", "game_term", "Tertusuk serpihan runcing setiap giliran"),
+            ("Obscured", "Terselubung", "game_term", "Terselubung lumpur atau kabut pelindung"),
+            ("Primed", "Siap Menyerang", "game_term", "Kuda-kuda siap memberikan serangan kuat"),
+            ("Stance Swap", "Tukar Kuda-Kuda", "game_term", "Tukar stat ofensif dan defensif"),
+            ("Frenzied Might", "Kekuatan Mengamuk", "game_term", "Kekuatan Pokémon Raja yang mengamuk"),
+            ("Wild Might", "Kekuatan Liar", "game_term", "Kekuatan Pokémon Alpha liar"),
+            ("Terrific Might", "Kekuatan Hebat", "game_term", "Kekuatan luar biasa Pokémon Alpha"),
+            ("Terrible Might", "Kekuatan Mengerikan", "game_term", "Kekuatan mengerikan Pokémon"),
+            ("Power Boost", "Peningkatan Serangan", "game_term", "Stat Attack dan Sp. Atk meningkat"),
+            ("Power Drop", "Penurunan Serangan", "game_term", "Stat Attack dan Sp. Atk menurun"),
+            ("Guard Boost", "Peningkatan Pertahanan", "game_term", "Stat Defense dan Sp. Def meningkat"),
+            ("Guard Drop", "Penurunan Pertahanan", "game_term", "Stat Defense dan Sp. Def menurun"),
+            ("Syrupy", "Lengket Berlendir", "game_term", "Kecepatan turun akibat sirup lengket"),
+            ("Going All Out", "Mengerahkan Segalanya", "game_term", "Peningkatan serangan dari sorakan Trainer"),
+            ("Hanging Tough", "Bertahan Kuat", "game_term", "Peningkatan pertahanan dari sorakan Trainer"),
+        ]
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) as cnt FROM glossary")
-            row = cursor.fetchone()
-            if row and row["cnt"] > 0:
-                return
-
-            defaults = [
-                ("Vending Machine", "Vending Machine", "game_term", ""),
-                ("TM Machine", "TM Machine", "game_term", ""),
-                ("Poké Ball", "Poké Ball", "pokemon", ""),
-                ("Pokémon Center", "Pokémon Center", "pokemon", ""),
-                ("Pokédex", "Pokédex", "pokemon", ""),
-                ("Gym", "Gym", "pokemon", ""),
-                ("Gym Leader", "Gym Leader", "pokemon", ""),
-                ("Elite Four", "Elite Four", "pokemon", ""),
-                ("Champion", "Champion", "pokemon", ""),
-                ("Trainer", "Trainer", "pokemon", ""),
-                ("Team Star", "Team Star", "pokemon", ""),
-                ("Area Zero", "Area Zero", "location", ""),
-                ("Tera Type", "Tera Type", "game_term", ""),
-                ("Terastal", "Terastal", "game_term", ""),
-                ("Tera Orb", "Tera Orb", "game_term", ""),
-            ]
             cursor.executemany(
                 "INSERT OR IGNORE INTO glossary (term_en, term_id, category, notes) VALUES (?, ?, ?, ?)",
                 defaults
             )
             conn.commit()
-            log.info(f"Berhasil menambahkan {len(defaults)} entri glosarium default Pokémon SV ke database.")
+            log.info(f"Berhasil mensinkronkan {len(defaults)} entri glosarium default Pokémon SV ke database.")
 
     # ----------------- Translation Memory (TM) Methods -----------------
     @staticmethod

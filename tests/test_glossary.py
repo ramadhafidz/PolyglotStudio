@@ -74,7 +74,7 @@ class TestGlossaryDB(unittest.TestCase):
     def test_seed_default_glossary(self):
         self.db.seed_default_glossary()
         terms = self.db.get_glossary()
-        self.assertEqual(len(terms), 15)
+        self.assertGreaterEqual(len(terms), 115)
 
         term_map = {t["term_en"]: (t["term_id"], t["category"]) for t in terms}
         self.assertIn("Poké Ball", term_map)
@@ -83,11 +83,18 @@ class TestGlossaryDB(unittest.TestCase):
         self.assertEqual(term_map["Area Zero"], ("Area Zero", "location"))
         self.assertIn("Terastal", term_map)
         self.assertEqual(term_map["Terastal"], ("Terastal", "game_term"))
+        # Verify battle states and weathers
+        self.assertIn("Rain", term_map)
+        self.assertEqual(term_map["Rain"][0], "Hujan")
+        self.assertIn("Trick Room", term_map)
+        self.assertEqual(term_map["Trick Room"][0], "Trick Room")
+        self.assertIn("Poisoned", term_map)
+        self.assertEqual(term_map["Poisoned"][0], "Terkena Racun")
 
         # Calling again should not duplicate
         self.db.seed_default_glossary()
         terms_after = self.db.get_glossary()
-        self.assertEqual(len(terms_after), 15)
+        self.assertEqual(len(terms_after), len(terms))
 
     def test_ai_parse_json_response_with_new_terms(self):
         from core.universal_ai import UniversalAIClient
