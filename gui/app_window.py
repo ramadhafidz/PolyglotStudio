@@ -128,6 +128,8 @@ class ClassicDATStudioApp(tk.Tk):
         self.bind('<Control-comma>', lambda e: self.open_settings_modal())
         self.bind('<Control-g>', lambda e: self.open_glossary_dialog())
         self.bind('<Control-G>', lambda e: self.open_glossary_dialog())
+        self.bind('<Control-h>', lambda e: self.open_super_search_dialog())
+        self.bind('<Control-H>', lambda e: self.open_super_search_dialog())
         self.bind('<F2>', lambda e: self.open_current_selected_edit_dialog())
         self.bind('<Control-o>', lambda e: self.open_romfs())
         self.bind('<Control-O>', lambda e: self.open_romfs())
@@ -269,14 +271,19 @@ class ClassicDATStudioApp(tk.Tk):
         edit_menu.add_command(label="Auto-Fix All Tags", command=self.auto_fix_all_tags)
         edit_menu.add_separator()
         edit_menu.add_command(
-            label="Find in File...", 
+            label="Find in Active File...", 
             accelerator="Ctrl+F", 
             command=lambda: (self.search_entry.focus_set(), self.search_entry.select_range(0, tk.END))
         )
         edit_menu.add_command(
-            label="Find in Project (Files)...",
+            label="Filter Files...",
             accelerator="Ctrl+Shift+F",
             command=self.focus_file_search
+        )
+        edit_menu.add_command(
+            label="Super Search & Replace...",
+            accelerator="Ctrl+H",
+            command=self.open_super_search_dialog
         )
         menubar.add_cascade(label="Edit", menu=edit_menu)
 
@@ -548,6 +555,14 @@ class ClassicDATStudioApp(tk.Tk):
 
         self.search_status = ttk.Label(self.search_frame, text="")
         self.search_status.pack(side=tk.LEFT, padx=5)
+
+        super_search_btn = ttk.Button(
+            self.search_frame,
+            text=f"{Icons.SUPER_SEARCH} Super Search...",
+            command=self.open_super_search_dialog
+        )
+        super_search_btn.pack(side=tk.RIGHT, padx=5)
+        set_tooltip(super_search_btn, "Search & Replace across all project files (Ctrl+H)")
 
         # Paned Window for Table + Live Dialogue Inspector
         self.right_paned = ttk.PanedWindow(self.text_editor_container, orient=tk.VERTICAL)
@@ -2767,6 +2782,44 @@ class ClassicDATStudioApp(tk.Tk):
         log.info("Opening Glossary Management dialog...")
         from gui.dialogs.glossary_dialog import GlossaryDialog
         GlossaryDialog(self, self.db, ai=self.ai, current_lines=self.current_orig_lines)
+
+    # ----------------- Super Search Modal -----------------
+    def open_super_search_dialog(self, initial_query: str = ""):
+        log.info("Opening Super Search & Replace dialog...")
+        from gui.dialogs.super_search_dialog import SuperSearchDialog
+        q = initial_query or self.search_var.get().strip()
+        SuperSearchDialog(self, self, initial_query=q)
+
+    def jump_to_dialogue_line(self, filename: str, line_index: int) -> bool:
+        """Switches editor to target dialogue file and focuses/scrolls to line_index."""
+        target_idx = -1
+        for idx, item in enumerate(self.file_items):
+            if item["filename"].lower() == filename.lower() or item["rel_path"].lower() == filename.lower():
+                target_idx = idx
+                break
+        if target_idx < 0:
+            log.warning(f"jump_to_dialogue_line: File {filename} not found in project")
+            return False
+
+        if self.current_file_index != target_idx:
+            self.load_file(target_idx)
+
+        # Locate row in dialogue table
+        found_row = None
+        for r in self.table.get_children():
+            vals = self.table.item(r, "values")
+            if vals and int(vals[0]) == line_index:
+                found_row = r
+                break
+
+        if found_row:
+            self.table.selection_set(found_row)
+            self.table.focus(found_row)
+            self.table.see(found_row)
+            self.on_table_select()
+            self.update_info_status(f"Jumped to {filename} : Line {line_index}")
+            return True
+        return False
 
     # ----------------- Table Search Logic -----------------
     def search_text(self, event=None):

@@ -59,4 +59,7 @@ class Icons:
     REPAIR = "\uE90F"        # Auto-fix / Repair wrench
     VIEW = "\uE890"          # Eye / View preview
     COPY = "\uE8C8"          # Copy document / clipboard
+    REPLACE = "\uE8EE"       # Find and replace icon
+    SUPER_SEARCH = "\uE721"  # Super search magnifying glass
+
 
